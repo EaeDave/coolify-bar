@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "eaedave.coolify",
+  "name": "Coolify",
+  "version": "0.1.0",
+  "author": "EaeDave",
+  "license": "MIT",
+  "description": "Watch Coolify deployments from the Omarchy bar: running builds, recent history, and failures.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Coolify",
+    "description": "A bar icon for running Coolify deployments, with a panel of recent and failed deploys.",
+    "category": "Development",
+    "aliases": ["coolify", "deploy", "deploys"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "baseUrl": "",
+      "token": "",
+      "refreshIntervalSec": 30,
+      "iconAlwaysUnlit": false,
+      "linkBehavior": "Web app window"
+    },
+    "schema": [
+      {
+        "key": "baseUrl",
+        "type": "string",
+        "label": "Coolify URL",
+        "defaultValue": "",
+        "description": "Your Coolify instance, for example https://coolify.example.com. /api/v1 is added when missing."
+      },
+      {
+        "key": "token",
+        "type": "string",
+        "label": "API token",
+        "defaultValue": "",
+        "description": "Bearer token from Coolify → Keys & Tokens. Read permission is enough. Stored in shell.json."
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 10,
+        "max": 600,
+        "step": 5,
+        "defaultValue": 30
+      },
+      {
+        "key": "linkBehavior",
+        "type": "enum",
+        "label": "Open links",
+        "options": ["Browser tab", "Web app window"],
+        "defaultValue": "Web app window"
+      },
+      {
+        "key": "iconAlwaysUnlit",
+        "type": "boolean",
+        "label": "Keep the bar icon unlit",
+        "defaultValue": false
+      }
+    ]
+  }
+}

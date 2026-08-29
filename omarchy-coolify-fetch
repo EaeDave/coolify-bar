@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+# Fetch Coolify deployment state for the Omarchy bar widget.
+# Secrets arrive through the environment, never argv.
+set -uo pipefail
+
+history_take="${COOLIFY_HISTORY_TAKE:-8}"
+app_limit="${COOLIFY_APP_LIMIT:-40}"
+curl_bin="${COOLIFY_CURL:-curl}"
+
+emit() {
+  printf '%s\n' "$1"
+}
+
+iso_now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+json_error() {
+  local state="$1"
+  local message="$2"
+  jq -n \
+    --arg state "$state" \
+    --arg message "$message" \
+    --arg fetchedAt "$(iso_now)" \
+    '{
+      state: $state,
+      message: $message,
+      fetchedAt: $fetchedAt,
+      source: null,
+      sources: [],
+      running: [],
+      recent: [],
+      failures: [],
+      warnings: []
+    }'
+}
+
+sources_json() {
+  if [[ -n "${COOLIFY_SOURCES:-}" ]]; then
+    printf '%s' "$COOLIFY_SOURCES"
+    return
+  fi
+  jq -n \
+    --arg id "${COOLIFY_SOURCE_ID:-default}" \
+    --arg name "${COOLIFY_SOURCE_NAME:-Coolify}" \
+    --arg baseUrl "${COOLIFY_BASE_URL:-}" \
+    --arg token "${COOLIFY_TOKEN:-}" \
+    '[{id: $id, name: $name, baseUrl: $baseUrl, token: $token}]'
+}
+
+normalize_base() {
+  local raw="$1"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%/}"
+  if [[ -z "$raw" ]]; then
+    printf ''
+    return
+  fi
+  if [[ "$raw" != http://* && "$raw" != https://* ]]; then
+    raw="https://${raw}"
+  fi
+  if [[ "$raw" != */api/v1 ]]; then
+    raw="${raw}/api/v1"
+  fi
+  printf '%s' "$raw"
+}
+
+normalize_token() {
+  local raw="$1"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw#Bearer }"
+  raw="${raw#bearer }"
+  printf '%s' "$raw"
+}
+
+fixture_file_for() {
+  local url="$1"
+  local path="${url#*://}"
+  path="${path#*/}"
+  if [[ "$path" == *"/deployments/applications/"* ]]; then
+    local uuid
+    uuid="$(printf '%s' "$path" | sed -n 's#.*deployments/applications/\([^?/]*\).*#\1#p')"
+    printf '%s/deployments-app-%s.json' "$COOLIFY_FIXTURE_DIR" "$uuid"
+    return
+  fi
+  if [[ "$path" == *"/deployments" ]]; then
+    printf '%s/deployments.json' "$COOLIFY_FIXTURE_DIR"
+    return
+  fi
+  if [[ "$path" == *"/applications" ]]; then
+    printf '%s/applications.json' "$COOLIFY_FIXTURE_DIR"
+    return
+  fi
+  printf '%s/unknown.json' "$COOLIFY_FIXTURE_DIR"
+}
+
+http_get() {
+  local token="$1"
+  local url="$2"
+  local body_file="$3"
+  local code
+  if [[ -n "${COOLIFY_FIXTURE_DIR:-}" ]]; then
+    local fixture
+    fixture="$(fixture_file_for "$url")"
+    if [[ -f "$fixture" ]]; then
+      cat "$fixture" >"$body_file"
+      printf '200'
+    else
+      printf '{"message":"missing fixture"}' >"$body_file"
+      printf '404'
+    fi
+    return
+  fi
+  code="$("$curl_bin" -sS -o "$body_file" -w "%{http_code}" --max-time 20 \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/json" \
+    "$url" 2>"${body_file}.err" || true)"
+  printf '%s' "${code:-000}"
+}
+
+extract_list() {
+  local file="$1"
+  jq -c '
+    if type == "array" then .
+    elif type == "object" and (.deployments | type) == "array" then .deployments
+    elif type == "object" and (.applications | type) == "array" then .applications
+    elif type == "object" and (.data | type) == "array" then .data
+    else []
+    end
+  ' "$file" 2>/dev/null || printf '[]'
+}
+
+normalize_items() {
+  local source_id="$1"
+  local source_name="$2"
+  local api_base="$3"
+  jq -c --arg sourceId "$source_id" --arg sourceName "$source_name" --arg apiBase "$api_base" '
+    def kind:
+      (ascii_downcase) as $s
+      | if $s == "queued" then "queued"
+        elif ($s == "in_progress" or $s == "in-progress") then "running"
+        elif ($s == "finished" or $s == "success") then "success"
+        elif ($s == "failed" or $s == "error") then "failed"
+        elif ($s == "cancelled-by-user" or $s == "cancelled" or $s == "canceled") then "cancelled"
+        else "unknown" end;
+    def short_commit:
+      tostring | gsub("^#";"") | .[0:7];
+    map(
+      {
+        id: ((.deployment_uuid // .uuid // .id // "") | tostring),
+        sourceId: $sourceId,
+        sourceName: $sourceName,
+        applicationName: ((.application_name // .name // "Unknown") | tostring),
+        applicationUuid: ((.application_uuid // .application_id // "") | tostring),
+        status: ((.status // "") | tostring),
+        statusKind: ((.status // "") | tostring | kind),
+        commit: ((.commit // "") | short_commit),
+        commitMessage: ((.commit_message // "") | tostring),
+        createdAt: ((.created_at // "") | tostring),
+        updatedAt: ((.updated_at // .created_at // "") | tostring),
+        url: ((.deployment_url // "") | tostring)
+      }
+      | select(.id != "")
+    )
+  '
+}
+
+sort_items() {
+  jq -c 'sort_by(.updatedAt) | reverse'
+}
+
+unique_by_id() {
+  jq -c '
+    reduce .[] as $item ({seen: {}, items: []};
+      if $item.id != "" and (.seen[$item.id] | not) then
+        .seen[$item.id] = true | .items += [$item]
+      else . end
+    ) | .items
+  '
+}
+
+fetch_source() {
+  local id="$1"
+  local name="$2"
+  local raw_url="$3"
+  local raw_token="$4"
+  local api token tmp running_file apps_file hist_file code running_json apps_json
+  local warnings="[]"
+  local running_items="[]"
+  local recent_items="[]"
+  local failure_items="[]"
+  local state="ready"
+  local message=""
+
+  api="$(normalize_base "$raw_url")"
+  token="$(normalize_token "$raw_token")"
+
+  if [[ -z "$api" || -z "$token" ]]; then
+    jq -n \
+      --arg id "$id" \
+      --arg name "$name" \
+      --arg baseUrl "$api" \
+      '{
+        id: $id,
+        name: $name,
+        baseUrl: $baseUrl,
+        state: "unconfigured",
+        message: "Paste your Coolify URL and API token in settings.",
+        running: [],
+        recent: [],
+        failures: []
+      }'
+    return
+  fi
+
+  tmp="$(mktemp -d)"
+  running_file="${tmp}/running.json"
+  apps_file="${tmp}/apps.json"
+
+  code="$(http_get "$token" "${api}/deployments" "$running_file")"
+  if [[ "$code" == "401" || "$code" == "403" ]]; then
+    rm -rf "$tmp"
+    jq -n \
+      --arg id "$id" \
+      --arg name "$name" \
+      --arg baseUrl "$api" \
+      '{
+        id: $id,
+        name: $name,
+        baseUrl: $baseUrl,
+        state: "unauthorized",
+        message: "Coolify rejected the token. Create a read token under Keys & Tokens.",
+        running: [],
+        recent: [],
+        failures: []
+      }'
+    return
+  fi
+  if [[ "$code" != "200" ]]; then
+    local err
+    err="$(tr '\n' ' ' <"${running_file}.err" 2>/dev/null || true)"
+    rm -rf "$tmp"
+    jq -n \
+      --arg id "$id" \
+      --arg name "$name" \
+      --arg baseUrl "$api" \
+      --arg message "Could not reach Coolify (HTTP ${code:-000}${err:+ · $err})." \
+      '{
+        id: $id,
+        name: $name,
+        baseUrl: $baseUrl,
+        state: "error",
+        message: $message,
+        running: [],
+        recent: [],
+        failures: []
+      }'
+    return
+  fi
+
+  running_json="$(extract_list "$running_file")"
+  running_items="$(printf '%s' "$running_json" | normalize_items "$id" "$name" "$api" | unique_by_id)"
+
+  code="$(http_get "$token" "${api}/applications" "$apps_file")"
+  if [[ "$code" == "200" ]]; then
+    apps_json="$(extract_list "$apps_file")"
+    local uuids
+    uuids="$(printf '%s' "$apps_json" | jq -r --argjson limit "$app_limit" '
+      [.[].uuid // empty] | .[:$limit] | .[]
+    ' 2>/dev/null || true)"
+    local history="[]"
+    local uuid
+    while IFS= read -r uuid; do
+      [[ -z "$uuid" ]] && continue
+      hist_file="${tmp}/hist-${uuid}.json"
+      code="$(http_get "$token" "${api}/deployments/applications/${uuid}?take=${history_take}" "$hist_file")"
+      if [[ "$code" != "200" ]]; then
+        warnings="$(jq -c --arg w "History for ${uuid} returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
+        continue
+      fi
+      local chunk
+      chunk="$(extract_list "$hist_file" | normalize_items "$id" "$name" "$api")"
+      history="$(jq -n -c --argjson a "$history" --argjson b "$chunk" '$a + $b')"
+    done <<<"$uuids"
+    recent_items="$(jq -n -c --argjson a "$running_items" --argjson b "$history" '$a + $b' | unique_by_id | sort_items)"
+  else
+    warnings="$(jq -c --arg w "Application list returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
+    recent_items="$(printf '%s' "$running_items" | sort_items)"
+  fi
+
+  failure_items="$(printf '%s' "$recent_items" | jq -c '[.[] | select(.statusKind == "failed")]')"
+  recent_items="$(printf '%s' "$recent_items" | jq -c --argjson take "$history_take" '.[0:$take]')"
+
+  rm -rf "$tmp"
+
+  if [[ -z "$message" ]]; then
+    local running_n
+    running_n="$(printf '%s' "$running_items" | jq 'length')"
+    if [[ "$running_n" -gt 0 ]]; then
+      message="${running_n} running"
+    else
+      message="No deployments running"
+    fi
+  fi
+
+  jq -n \
+    --arg id "$id" \
+    --arg name "$name" \
+    --arg baseUrl "$api" \
+    --arg state "$state" \
+    --arg message "$message" \
+    --argjson running "$running_items" \
+    --argjson recent "$recent_items" \
+    --argjson failures "$failure_items" \
+    --argjson warnings "$warnings" \
+    '{
+      id: $id,
+      name: $name,
+      baseUrl: $baseUrl,
+      state: $state,
+      message: $message,
+      running: $running,
+      recent: $recent,
+      failures: $failures,
+      warnings: $warnings
+    }'
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  emit "$(json_error error "jq is required.")"
+  exit 0
+fi
+if [[ -z "${COOLIFY_FIXTURE_DIR:-}" ]] && ! command -v "$curl_bin" >/dev/null 2>&1; then
+  emit "$(json_error error "curl is required.")"
+  exit 0
+fi
+
+mapfile -t source_rows < <(sources_json | jq -c '.[]' 2>/dev/null || true)
+if [[ ${#source_rows[@]} -eq 0 ]]; then
+  emit "$(json_error unconfigured "Paste your Coolify URL and API token in settings.")"
+  exit 0
+fi
+
+results="[]"
+for row in "${source_rows[@]}"; do
+  sid="$(jq -r '.id // "default"' <<<"$row")"
+  sname="$(jq -r '.name // "Coolify"' <<<"$row")"
+  surl="$(jq -r '.baseUrl // ""' <<<"$row")"
+  stoken="$(jq -r '.token // ""' <<<"$row")"
+  fetched="$(fetch_source "$sid" "$sname" "$surl" "$stoken")"
+  results="$(jq -n -c --argjson acc "$results" --argjson item "$fetched" '$acc + [$item]')"
+done
+
+overall_state="$(printf '%s' "$results" | jq -r '
+  if any(.state == "ready") then "ready"
+  elif all(.state == "unconfigured") then "unconfigured"
+  elif any(.state == "unauthorized") then "unauthorized"
+  else "error" end
+')"
+overall_message="$(printf '%s' "$results" | jq -r '.[0].message // "Coolify"')"
+first_ready="$(printf '%s' "$results" | jq -c '[.[] | select(.state == "ready")][0] // .[0]')"
+
+jq -n \
+  --arg state "$overall_state" \
+  --arg message "$overall_message" \
+  --arg fetchedAt "$(iso_now)" \
+  --argjson sources "$results" \
+  --argjson source "$first_ready" \
+  '{
+    state: $state,
+    message: $message,
+    fetchedAt: $fetchedAt,
+    source: {id: $source.id, name: $source.name, baseUrl: $source.baseUrl},
+    sources: $sources,
+    running: ($sources | map(.running) | add // []),
+    recent: ($sources | map(.recent) | add // []),
+    failures: ($sources | map(.failures) | add // []),
+    warnings: ($sources | map(.warnings // []) | add // [])
+  }'

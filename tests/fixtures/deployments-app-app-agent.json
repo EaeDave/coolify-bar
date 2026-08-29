@@ -1,0 +1,12 @@
+[
+  {
+    "deployment_uuid": "fail-agent-1",
+    "application_id": "app-agent",
+    "application_name": "PR-Agent",
+    "status": "failed",
+    "commit": "abc1234",
+    "created_at": "2026-08-29T20:00:00Z",
+    "updated_at": "2026-08-29T20:02:00Z",
+    "deployment_url": "https://coolify.example.com/deployments/fail-agent-1"
+  }
+]
