@@ -210,8 +210,8 @@ Panel {
   }
 
   function openUrl(url) {
-    var value = String(url || "")
-    if (value === "")
+    var value = String(url || "").trim()
+    if (!/^https?:\/\//i.test(value))
       return
     if (coolify.linkBehavior === "Browser tab")
       Quickshell.execDetached(["omarchy-launch-browser", value])

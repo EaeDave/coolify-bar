@@ -1,4 +1,4 @@
 [
-  { "uuid": "app-stub", "name": "stub" },
-  { "uuid": "app-agent", "name": "PR-Agent" }
+  { "uuid": "app-stub", "name": "stub", "environment_id": 1 },
+  { "uuid": "app-agent", "name": "PR-Agent", "environment_id": 1 }
 ]

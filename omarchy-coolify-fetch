@@ -93,6 +93,20 @@ fixture_file_for() {
     printf '%s/applications.json' "$COOLIFY_FIXTURE_DIR"
     return
   fi
+  if [[ "$path" == *"/projects/"*"/environments"* ]]; then
+    local uuid
+    uuid="$(printf '%s' "$path" | sed -n 's#.*projects/\([^/]*\)/environments.*#\1#p')"
+    if [[ -f "${COOLIFY_FIXTURE_DIR}/environments-${uuid}.json" ]]; then
+      printf '%s/environments-%s.json' "$COOLIFY_FIXTURE_DIR" "$uuid"
+    else
+      printf '%s/environments.json' "$COOLIFY_FIXTURE_DIR"
+    fi
+    return
+  fi
+  if [[ "$path" == *"/projects" ]]; then
+    printf '%s/projects.json' "$COOLIFY_FIXTURE_DIR"
+    return
+  fi
   printf '%s/unknown.json' "$COOLIFY_FIXTURE_DIR"
 }
 
@@ -126,6 +140,8 @@ extract_list() {
     if type == "array" then .
     elif type == "object" and (.deployments | type) == "array" then .deployments
     elif type == "object" and (.applications | type) == "array" then .applications
+    elif type == "object" and (.environments | type) == "array" then .environments
+    elif type == "object" and (.projects | type) == "array" then .projects
     elif type == "object" and (.data | type) == "array" then .data
     else []
     end
@@ -136,7 +152,8 @@ normalize_items() {
   local source_id="$1"
   local source_name="$2"
   local api_base="$3"
-  jq -c --arg sourceId "$source_id" --arg sourceName "$source_name" --arg apiBase "$api_base" '
+  local app_uuid="${4:-}"
+  jq -c --arg sourceId "$source_id" --arg sourceName "$source_name" --arg apiBase "$api_base" --arg appUuid "$app_uuid" '
     def kind:
       (ascii_downcase) as $s
       | if $s == "queued" then "queued"
@@ -153,7 +170,7 @@ normalize_items() {
         sourceId: $sourceId,
         sourceName: $sourceName,
         applicationName: ((.application_name // .name // "Unknown") | tostring),
-        applicationUuid: ((.application_uuid // .application_id // "") | tostring),
+        applicationUuid: (if $appUuid != "" then $appUuid else ((.application_uuid // "") | tostring) end),
         status: ((.status // "") | tostring),
         statusKind: ((.status // "") | tostring | kind),
         commit: ((.commit // "") | short_commit),
@@ -163,6 +180,31 @@ normalize_items() {
         url: ((.deployment_url // "") | tostring)
       }
       | select(.id != "")
+    )
+  '
+}
+
+ui_origin() {
+  local api="$1"
+  printf '%s' "${api%/api/v1}"
+}
+
+fill_urls() {
+  local origin="$1"
+  local index="$2"
+  jq -c --arg origin "$origin" --argjson index "$index" '
+    map(
+      . as $item
+      | ($index.byUuid[$item.applicationUuid] // $index.byName[$item.applicationName] // null) as $app
+      | $item + {
+          url: (
+            if ($item.url | type == "string") and ($item.url | test("^https?://")) then $item.url
+            elif $app != null and ($app.projectUuid | tostring | length) > 0 and ($app.environmentUuid | tostring | length) > 0 and ($app.uuid | tostring | length) > 0 then
+              $origin + "/project/" + $app.projectUuid + "/environment/" + $app.environmentUuid + "/application/" + $app.uuid + "/deployment/" + $item.id
+            else ""
+            end
+          )
+        }
     )
   '
 }
@@ -263,9 +305,53 @@ fetch_source() {
   running_json="$(extract_list "$running_file")"
   running_items="$(printf '%s' "$running_json" | normalize_items "$id" "$name" "$api" | unique_by_id)"
 
+  local app_index='{"byUuid":{},"byName":{}}'
   code="$(http_get "$token" "${api}/applications" "$apps_file")"
   if [[ "$code" == "200" ]]; then
     apps_json="$(extract_list "$apps_file")"
+    local projects_file="${tmp}/projects.json"
+    local projects_code
+    projects_code="$(http_get "$token" "${api}/projects" "$projects_file")"
+    if [[ "$projects_code" == "200" ]]; then
+      local projects_json env_rows project_uuids project_uuid env_file env_code env_chunk
+      projects_json="$(extract_list "$projects_file")"
+      env_rows="[]"
+      project_uuids="$(printf '%s' "$projects_json" | jq -r '.[].uuid // empty' 2>/dev/null || true)"
+      while IFS= read -r project_uuid; do
+        [[ -z "$project_uuid" ]] && continue
+        env_file="${tmp}/env-${project_uuid}.json"
+        env_code="$(http_get "$token" "${api}/projects/${project_uuid}/environments" "$env_file")"
+        if [[ "$env_code" != "200" ]]; then
+          warnings="$(jq -c --arg w "Environments for ${project_uuid} returned HTTP ${env_code}." '. + [$w]' <<<"$warnings")"
+          continue
+        fi
+        env_chunk="$(extract_list "$env_file" | jq -c --arg projectUuid "$project_uuid" '
+          map({
+            id: ((.id // "") | tostring),
+            uuid: ((.uuid // "") | tostring),
+            projectUuid: $projectUuid
+          }) | map(select(.id != "" and .uuid != ""))
+        ')"
+        env_rows="$(jq -n -c --argjson a "$env_rows" --argjson b "$env_chunk" '$a + $b')"
+      done <<<"$project_uuids"
+      app_index="$(jq -n -c --argjson apps "$apps_json" --argjson envs "$env_rows" '
+        ($envs | map(select(.id != "") | {key: .id, value: .}) | from_entries) as $envById
+        | ($apps
+            | map(select((.uuid // "") | tostring | length > 0)
+              | {
+                  uuid: (.uuid | tostring),
+                  name: ((.name // "") | tostring),
+                  projectUuid: ($envById[(.environment_id | tostring)].projectUuid // ""),
+                  environmentUuid: ($envById[(.environment_id | tostring)].uuid // "")
+                })) as $rows
+        | {
+            byUuid: ($rows | map({key: .uuid, value: .}) | from_entries),
+            byName: ($rows | map(select(.name != "") | {key: .name, value: .}) | from_entries)
+          }
+      ')"
+    else
+      warnings="$(jq -c --arg w "Project list returned HTTP ${projects_code}." '. + [$w]' <<<"$warnings")"
+    fi
     local uuids
     uuids="$(printf '%s' "$apps_json" | jq -r --argjson limit "$app_limit" '
       [.[].uuid // empty] | .[:$limit] | .[]
@@ -281,13 +367,24 @@ fetch_source() {
         continue
       fi
       local chunk
-      chunk="$(extract_list "$hist_file" | normalize_items "$id" "$name" "$api")"
+      chunk="$(extract_list "$hist_file" | normalize_items "$id" "$name" "$api" "$uuid")"
       history="$(jq -n -c --argjson a "$history" --argjson b "$chunk" '$a + $b')"
     done <<<"$uuids"
     recent_items="$(jq -n -c --argjson a "$running_items" --argjson b "$history" '$a + $b' | unique_by_id | sort_items)"
   else
     warnings="$(jq -c --arg w "Application list returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
     recent_items="$(printf '%s' "$running_items" | sort_items)"
+  fi
+
+  local origin filled
+  origin="$(ui_origin "$api")"
+  filled="$(printf '%s' "$running_items" | fill_urls "$origin" "$app_index" || true)"
+  if [[ "$filled" == [* ]]; then
+    running_items="$filled"
+  fi
+  filled="$(printf '%s' "$recent_items" | fill_urls "$origin" "$app_index" || true)"
+  if [[ "$filled" == [* ]]; then
+    recent_items="$filled"
   fi
 
   failure_items="$(printf '%s' "$recent_items" | jq -c '[.[] | select(.statusKind == "failed")]')"
