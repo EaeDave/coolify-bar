@@ -4,7 +4,7 @@
 set -uo pipefail
 
 history_take="${COOLIFY_HISTORY_TAKE:-8}"
-app_limit="${COOLIFY_APP_LIMIT:-40}"
+app_limit="${COOLIFY_APP_LIMIT:-12}"
 curl_bin="${COOLIFY_CURL:-curl}"
 
 emit() {
@@ -120,8 +120,18 @@ http_get() {
   local body_file="$3"
   local code
   if [[ -n "${COOLIFY_FIXTURE_DIR:-}" ]]; then
-    local fixture
+    local fixture status_file
     fixture="$(fixture_file_for "$url")"
+    status_file="${fixture%.json}.status"
+    if [[ -f "$status_file" ]]; then
+      if [[ -f "$fixture" ]]; then
+        cat "$fixture" >"$body_file"
+      else
+        printf '{"message":"rate limited"}' >"$body_file"
+      fi
+      tr -d ' \t\r\n' <"$status_file"
+      return
+    fi
     if [[ -f "$fixture" ]]; then
       cat "$fixture" >"$body_file"
       printf '200'
@@ -288,6 +298,24 @@ fetch_source() {
       }'
     return
   fi
+  if [[ "$code" == "429" ]]; then
+    rm -rf "$tmp"
+    jq -n \
+      --arg id "$id" \
+      --arg name "$name" \
+      --arg baseUrl "$api" \
+      '{
+        id: $id,
+        name: $name,
+        baseUrl: $baseUrl,
+        state: "rate-limited",
+        message: "Coolify rate-limited this instance. Slow the refresh interval and wait a minute.",
+        running: [],
+        recent: [],
+        failures: []
+      }'
+    return
+  fi
   if [[ "$code" != "200" ]]; then
     local err
     err="$(tr '\n' ' ' <"${running_file}.err" 2>/dev/null || true)"
@@ -316,7 +344,7 @@ fetch_source() {
   local app_index='{"byUuid":{},"byName":{}}'
   code="$(http_get "$token" "${api}/applications" "$apps_file")"
   if [[ "$code" == "200" ]]; then
-    apps_json="$(extract_list "$apps_file" | jq -c 'map({uuid: (.uuid // ""), name: (.name // ""), environment_id})')"
+    apps_json="$(extract_list "$apps_file" | jq -c 'map({uuid: (.uuid // ""), name: (.name // ""), environment_id, updated_at: ((.updated_at // .created_at // "") | tostring)})')"
     local app_count
     app_count="$(printf '%s' "$apps_json" | jq 'length')"
     if [[ "$app_count" == "0" ]]; then
@@ -345,6 +373,10 @@ fetch_source() {
         [[ -z "$project_uuid" ]] && continue
         env_file="${tmp}/env-${project_uuid}.json"
         env_code="$(http_get "$token" "${api}/projects/${project_uuid}/environments" "$env_file")"
+        if [[ "$env_code" == "429" ]]; then
+          warnings="$(jq -c --arg w "Coolify rate-limited this instance while loading environments." '. + [$w]' <<<"$warnings")"
+          break
+        fi
         if [[ "$env_code" != "200" ]]; then
           warnings="$(jq -c --arg w "Environments for ${project_uuid} returned HTTP ${env_code}." '. + [$w]' <<<"$warnings")"
           continue
@@ -377,8 +409,14 @@ fetch_source() {
       warnings="$(jq -c --arg w "Project list returned HTTP ${projects_code}." '. + [$w]' <<<"$warnings")"
     fi
     local uuids
-    uuids="$(printf '%s' "$apps_json" | jq -r --argjson limit "$app_limit" '
-      [.[].uuid // empty] | .[:$limit] | .[]
+    uuids="$(jq -n -r --argjson apps "$apps_json" --argjson running "$running_items" --argjson limit "$app_limit" '
+      ($running | map(.applicationUuid // empty) | map(select(. != ""))) as $fromUuid
+      | ($running | map(.applicationName // empty) | map(select(. != ""))) as $names
+      | ($apps | map(select(.name as $n | ($names | index($n)) != null) | (.uuid // "")) | map(select(. != ""))) as $fromName
+      | ($apps | sort_by(.updated_at // "") | reverse | map(.uuid // empty) | map(select(. != ""))) as $recent
+      | ($fromUuid + $fromName + $recent | reduce .[] as $u ({seen: {}, ids: []};
+          if $u != "" and (.seen[$u] | not) then .seen[$u] = true | .ids += [$u] else . end
+        ) | .ids)[:$limit][]
     ' 2>/dev/null || true)"
     local history="[]"
     local uuid
@@ -386,6 +424,10 @@ fetch_source() {
       [[ -z "$uuid" ]] && continue
       hist_file="${tmp}/hist-${uuid}.json"
       code="$(http_get "$token" "${api}/deployments/applications/${uuid}?take=${history_take}" "$hist_file")"
+      if [[ "$code" == "429" ]]; then
+        warnings="$(jq -c --arg w "Coolify rate-limited this instance while loading history." '. + [$w]' <<<"$warnings")"
+        break
+      fi
       if [[ "$code" != "200" ]]; then
         warnings="$(jq -c --arg w "History for ${uuid} returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
         continue
@@ -478,6 +520,7 @@ overall_state="$(printf '%s' "$results" | jq -r '
   if any(.state == "ready") then "ready"
   elif all(.state == "unconfigured") then "unconfigured"
   elif any(.state == "unauthorized") then "unauthorized"
+  elif any(.state == "rate-limited") then "rate-limited"
   else "error" end
 ')"
 overall_message="$(printf '%s' "$results" | jq -r '.[0].message // "Coolify"')"

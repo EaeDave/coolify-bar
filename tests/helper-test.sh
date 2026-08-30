@@ -45,4 +45,13 @@ test "$(jq -r '.recent | length' <<<"$empty_team")" = "0"
 test "$(jq -r '.warnings | length' <<<"$empty_team")" -ge "1"
 [[ "$(jq -r '.message' <<<"$empty_team")" == *"Personal Team"* ]]
 
+rate_limited="$(
+  COOLIFY_FIXTURE_DIR="$root/tests/fixtures-rate-limit" \
+  COOLIFY_BASE_URL="https://coolify.example.com" \
+  COOLIFY_TOKEN="test-token" \
+  "$helper"
+)"
+test "$(jq -r '.state' <<<"$rate_limited")" = "rate-limited"
+[[ "$(jq -r '.message' <<<"$rate_limited")" == *"rate-limited"* ]]
+
 echo "helper-test: ok"

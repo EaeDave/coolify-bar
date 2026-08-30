@@ -119,24 +119,91 @@ Item {
     fetchProcess.environment = {
       "COOLIFY_SOURCES": JSON.stringify(sourcesConfig),
       "COOLIFY_HISTORY_TAKE": "8",
-      "COOLIFY_APP_LIMIT": "40"
+      "COOLIFY_APP_LIMIT": "12"
     }
     fetchProcess.command = [helperPath()]
     fetchProcess.running = true
   }
 
+  function isRateLimited(src) {
+    var stateName = String((src && src.state) || "")
+    var text = String((src && src.message) || "")
+    return stateName === "rate-limited" || text.indexOf("rate-limited") !== -1 || text.indexOf("HTTP 429") !== -1
+  }
+
+  function flattenField(rows, key) {
+    var out = []
+    var list = rows || []
+    for (var i = 0; i < list.length; i++) {
+      var items = list[i][key] || []
+      for (var j = 0; j < items.length; j++)
+        out.push(items[j])
+    }
+    return out
+  }
+
+  function keepPreviousOnRateLimit(prev, next) {
+    var prevById = {}
+    var i
+    for (i = 0; i < (prev || []).length; i++)
+      prevById[String(prev[i].id || "")] = prev[i]
+    var out = []
+    for (i = 0; i < (next || []).length; i++) {
+      var src = next[i]
+      var old = prevById[String(src.id || "")]
+      var hasOld = old && ((old.recent || []).length > 0 || (old.running || []).length > 0)
+      if (isRateLimited(src) && hasOld) {
+        var warnings = []
+        var w
+        for (w = 0; w < (old.warnings || []).length; w++)
+          warnings.push(old.warnings[w])
+        warnings.push(String(src.message || "Coolify rate-limited this instance."))
+        out.push({
+          id: old.id,
+          name: old.name,
+          baseUrl: old.baseUrl,
+          state: "ready",
+          message: src.message,
+          running: old.running || [],
+          recent: old.recent || [],
+          failures: old.failures || [],
+          warnings: warnings
+        })
+      } else {
+        out.push(src)
+      }
+    }
+    return out
+  }
+
   function apply(raw) {
     try {
       var data = JSON.parse(String(raw || ""))
-      state = String(data.state || "error")
-      message = String(data.message || "")
-      fetchedAt = String(data.fetchedAt || "")
+      var nextSources = Array.isArray(data.sources) ? data.sources : []
+      sources = keepPreviousOnRateLimit(sources, nextSources)
+      running = flattenField(sources, "running")
+      recent = flattenField(sources, "recent")
+      failures = flattenField(sources, "failures")
+      warnings = flattenField(sources, "warnings")
       source = data.source || {}
-      sources = Array.isArray(data.sources) ? data.sources : []
-      running = Array.isArray(data.running) ? data.running : []
-      recent = Array.isArray(data.recent) ? data.recent : []
-      failures = Array.isArray(data.failures) ? data.failures : []
-      warnings = Array.isArray(data.warnings) ? data.warnings : []
+      fetchedAt = String(data.fetchedAt || "")
+      var anyReady = false
+      var i
+      for (i = 0; i < sources.length; i++) {
+        if (String(sources[i].state || "") === "ready")
+          anyReady = true
+      }
+      if (anyReady)
+        state = "ready"
+      else
+        state = String(data.state || "error")
+      message = String(data.message || "")
+      for (i = 0; i < sources.length; i++) {
+        if (isRateLimited(sources[i]) || (String(sources[i].message || "").indexOf("rate-limited") !== -1)) {
+          message = String(sources[i].message || message)
+          break
+        }
+      }
     } catch (error) {
       state = "error"
       message = "Coolify returned an unreadable response."
@@ -173,7 +240,8 @@ Item {
       }
       if (root.refreshQueued) {
         root.refreshQueued = false
-        Qt.callLater(root.refresh)
+        if (root.state !== "rate-limited")
+          Qt.callLater(root.refresh)
       }
     }
     stdout: StdioCollector {
