@@ -80,7 +80,7 @@ Panel {
 
   function startNewSource() {
     editingId = ""
-    draftName = coolify.sourcesConfig.length === 0 ? "Pessoal" : ""
+    draftName = coolify.sourcesConfig.length === 0 ? "Personal" : ""
     draftBaseUrl = ""
     draftToken = ""
   }
@@ -636,7 +636,7 @@ Panel {
                 font.bold: true
               }
               Text {
-                text: "Name each Coolify so you can tell pessoal and empresa apart."
+                text: "Name each Coolify so you can tell them apart."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -739,7 +739,7 @@ Panel {
               Text {
                 visible: coolify.sourcesConfig.length === 0
                 width: parent.width
-                text: "None yet. Add pessoal, empresa, or any other Coolify."
+                text: "None yet. Add Personal, Work, or any other Coolify."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -761,7 +761,7 @@ Panel {
                 id: nameField
                 width: parent.width
                 foreground: root.foreground
-                placeholderText: "Name · Pessoal, Empresa…"
+                placeholderText: "Name · Personal, Work…"
                 text: root.draftName
                 onTextChanged: root.draftName = text
               }
@@ -794,6 +794,7 @@ Panel {
                 spacing: Style.space(8)
                 Button {
                   text: root.editingId === "" ? "Add instance" : "Save instance"
+                  bordered: true
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.saveSource()

@@ -25,11 +25,11 @@ test "$(jq -r '.sources | length' <<<"$payload")" = "1"
 
 multi="$(
   COOLIFY_FIXTURE_DIR="$fixtures" \
-  COOLIFY_SOURCES='[{"id":"pessoal","name":"Pessoal","baseUrl":"https://a.example","token":"t"},{"id":"empresa","name":"Empresa","baseUrl":"https://b.example","token":"t"}]' \
+  COOLIFY_SOURCES='[{"id":"personal","name":"Personal","baseUrl":"https://a.example","token":"t"},{"id":"work","name":"Work","baseUrl":"https://b.example","token":"t"}]' \
   "$helper"
 )"
 test "$(jq -r '.sources | length' <<<"$multi")" = "2"
 test "$(jq -r '.running | length' <<<"$multi")" = "2"
-test "$(jq -r '[.running[].sourceName] | unique | sort | join(",")' <<<"$multi")" = "Empresa,Pessoal"
+test "$(jq -r '[.running[].sourceName] | unique | sort | join(",")' <<<"$multi")" = "Personal,Work"
 
 echo "helper-test: ok"

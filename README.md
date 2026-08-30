@@ -4,7 +4,7 @@ Coolify deployments, on the Omarchy bar.
 
 The icon lights up while something is deploying (and when a recent deploy failed). Click it for a panel of running, recent, and failed deployments.
 
-One bar icon covers every Coolify you add. Name them in settings — Pessoal, Empresa, and so on — then filter the panel by that name.
+One bar icon covers every Coolify you add. Name them in settings — Personal, Work, and so on — then filter the panel by that name.
 
 ## Install
 
@@ -23,7 +23,7 @@ omarchy plugin add https://github.com/EaeDave/coolify-bar.git --enable
 
 1. In Coolify: **Keys & Tokens** → create a token with **read** (not `root`, not `read:sensitive`).
 2. Click the Coolify icon on the bar (or it opens settings the first time).
-3. Give it a **name** (Pessoal, Empresa…), the instance URL, and the bearer token.
+3. Give it a **name** (Personal, Work…), the instance URL, and the bearer token.
 4. **Add instance**. Repeat for another Coolify if you have more.
 
 The token is stored on the widget entry in `~/.config/omarchy/shell.json` for v1. That file is not a secrets store. Do not commit it.

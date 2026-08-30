@@ -4,7 +4,7 @@ import Quickshell.Io
 
 // Coolify fetch service. The helper talks to the API; this item schedules it
 // and exposes one model to the panel. Multiple named sources go out as
-// COOLIFY_SOURCES. A lone baseUrl/token pair is treated as "Pessoal".
+// COOLIFY_SOURCES. A lone baseUrl/token pair is treated as "Personal".
 Item {
   id: root
 
@@ -79,7 +79,7 @@ Item {
       if (url !== "" || token !== "") {
         list.push({
           id: "default",
-          name: String(data.sourceName || "Pessoal").trim() || "Pessoal",
+          name: String(data.sourceName || "Personal").trim() || "Personal",
           baseUrl: url,
           token: token
         })
