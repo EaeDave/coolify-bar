@@ -7,6 +7,6 @@
     "commit": "abc1234",
     "created_at": "2026-08-29T20:00:00Z",
     "updated_at": "2026-08-29T20:02:00Z",
-    "deployment_url": ""
+    "deployment_url": "/project/proj-1/environment/env-1/application/app-agent/deployment/fail-agent-1"
   }
 ]

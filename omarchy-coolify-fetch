@@ -181,6 +181,7 @@ normalize_items() {
         commitMessage: ((.commit_message // "") | tostring),
         createdAt: ((.created_at // "") | tostring),
         updatedAt: ((.updated_at // .created_at // "") | tostring),
+        origin: ($apiBase | sub("/api/v1$";"")),
         url: ((.deployment_url // "") | tostring)
       }
       | select(.id != "")
@@ -200,11 +201,14 @@ fill_urls() {
     map(
       . as $item
       | ($index.byUuid[$item.applicationUuid] // $index.byName[$item.applicationName] // null) as $app
+      | (if ($origin | length) > 0 then $origin else ($item.origin // "") end) as $base
       | $item + {
           url: (
             if ($item.url | type == "string") and ($item.url | test("^https?://")) then $item.url
-            elif $app != null and ($app.projectUuid | tostring | length) > 0 and ($app.environmentUuid | tostring | length) > 0 and ($app.uuid | tostring | length) > 0 then
-              $origin + "/project/" + $app.projectUuid + "/environment/" + $app.environmentUuid + "/application/" + $app.uuid + "/deployment/" + $item.id
+            elif ($item.url | type == "string") and ($item.url | startswith("/")) and ($base | length) > 0 then
+              $base + $item.url
+            elif $app != null and ($base | length) > 0 and ($app.projectUuid | tostring | length) > 0 and ($app.environmentUuid | tostring | length) > 0 and ($app.uuid | tostring | length) > 0 then
+              $base + "/project/" + $app.projectUuid + "/environment/" + $app.environmentUuid + "/application/" + $app.uuid + "/deployment/" + $item.id
             else ""
             end
           )
@@ -312,7 +316,7 @@ fetch_source() {
   local app_index='{"byUuid":{},"byName":{}}'
   code="$(http_get "$token" "${api}/applications" "$apps_file")"
   if [[ "$code" == "200" ]]; then
-    apps_json="$(extract_list "$apps_file")"
+    apps_json="$(extract_list "$apps_file" | jq -c 'map({uuid: (.uuid // ""), name: (.name // ""), environment_id})')"
     local app_count
     app_count="$(printf '%s' "$apps_json" | jq 'length')"
     if [[ "$app_count" == "0" ]]; then
