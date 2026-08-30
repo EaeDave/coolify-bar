@@ -21,7 +21,7 @@ omarchy plugin add https://github.com/EaeDave/coolify-bar.git --enable
 
 ## Setup
 
-1. In Coolify: **Keys & Tokens** → create a token with **read** (not `root`, not `read:sensitive`).
+1. In Coolify, switch to the team that has the apps, then **Keys & Tokens** → create a token with **read** (not `root`, not `read:sensitive`). The token only sees that team.
 2. Click the Coolify icon on the bar (or it opens settings the first time).
 3. Give it a **name** (Personal, Work…), the instance URL, and the bearer token.
 4. **Add instance**. Repeat for another Coolify if you have more.

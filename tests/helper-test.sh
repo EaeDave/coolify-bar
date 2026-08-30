@@ -34,4 +34,15 @@ test "$(jq -r '.sources | length' <<<"$multi")" = "2"
 test "$(jq -r '.running | length' <<<"$multi")" = "2"
 test "$(jq -r '[.running[].sourceName] | unique | sort | join(",")' <<<"$multi")" = "Personal,Work"
 
+empty_team="$(
+  COOLIFY_FIXTURE_DIR="$root/tests/fixtures-empty-team" \
+  COOLIFY_BASE_URL="https://coolify.example.com" \
+  COOLIFY_TOKEN="test-token" \
+  "$helper"
+)"
+test "$(jq -r '.state' <<<"$empty_team")" = "ready"
+test "$(jq -r '.recent | length' <<<"$empty_team")" = "0"
+test "$(jq -r '.warnings | length' <<<"$empty_team")" -ge "1"
+[[ "$(jq -r '.message' <<<"$empty_team")" == *"d4vd.sv's Team"* ]]
+
 echo "helper-test: ok"

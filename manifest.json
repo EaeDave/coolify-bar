@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "eaedave.coolify",
   "name": "Coolify",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": "EaeDave",
   "license": "MIT",
   "description": "Watch Coolify deployments from the Omarchy bar: running builds, recent history, and failures.",

@@ -43,6 +43,7 @@ Panel {
   readonly property var filteredRunning: filterRows(coolify.running)
   readonly property var filteredRecent: filterRows(coolify.recent)
   readonly property var filteredFailures: filterRows(coolify.failures)
+  readonly property var filteredSource: sourceFilter === "all" ? null : sourceById(sourceFilter)
   readonly property bool showSourceName: coolify.sourcesConfig.length > 1 && sourceFilter === "all"
 
   function setting(name, fallback) {
@@ -139,6 +140,21 @@ Panel {
         out.push(incoming[i])
     }
     return out
+  }
+
+  function sourceById(id) {
+    var rows = coolify.sources || []
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].id || "") === String(id || ""))
+        return rows[i]
+    }
+    return null
+  }
+
+  function sourceWarnings(source) {
+    if (source && source.warnings && source.warnings.length)
+      return source.warnings
+    return []
   }
 
   function persistSettings(values) {
@@ -466,10 +482,16 @@ Panel {
                 return "Coolify · " + coolify.sourcesConfig[0].name
               return "Coolify"
             }
-            meta: coolify.loading ? "Refreshing deployments…" : (coolify.state === "ready"
-              ? filteredRunning.length + " running · " + filteredRecent.length + " recent"
-                + (filteredFailures.length > 0 ? " · " + filteredFailures.length + " failed" : "")
-              : coolify.message)
+            meta: {
+              if (coolify.loading)
+                return "Refreshing deployments…"
+              if (root.filteredSource && String(root.filteredSource.state || "") !== "ready")
+                return String(root.filteredSource.message || coolify.message)
+              if (coolify.state === "ready")
+                return filteredRunning.length + " running · " + filteredRecent.length + " recent"
+                  + (filteredFailures.length > 0 ? " · " + filteredFailures.length + " failed" : "")
+              return coolify.message
+            }
             foreground: root.foreground
             fontFamily: root.fontFamily
             trailingControl: Component {
@@ -494,7 +516,11 @@ Panel {
           }
 
           BorderSurface {
-            visible: coolify.state !== "ready" || coolify.warnings.length > 0
+            visible: {
+              if (root.filteredSource)
+                return String(root.filteredSource.state || "") !== "ready" || root.sourceWarnings(root.filteredSource).length > 0
+              return coolify.state !== "ready" || coolify.warnings.length > 0
+            }
             width: parent.width
             implicitHeight: statusText.implicitHeight + Style.space(20)
             color: Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.10)
@@ -507,11 +533,17 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               anchors.margins: Style.space(10)
               text: {
-                if (coolify.state !== "ready")
-                  return coolify.message
-                var summary = "Partial results · " + String(coolify.warnings[0] || "A Coolify request failed.")
-                if (coolify.warnings.length > 1)
-                  summary += " · " + (coolify.warnings.length - 1) + " more"
+                var source = root.filteredSource
+                var state = source ? String(source.state || "") : coolify.state
+                var message = source ? String(source.message || coolify.message) : coolify.message
+                var warnings = source ? root.sourceWarnings(source) : coolify.warnings
+                if (state !== "ready")
+                  return message
+                var summary = String(warnings[0] || "A Coolify request failed.")
+                if (!source)
+                  summary = "Partial results · " + summary
+                if (warnings.length > 1)
+                  summary += " · " + (warnings.length - 1) + " more"
                 return summary
               }
               textFormat: Text.PlainText
@@ -561,7 +593,11 @@ Panel {
 
           DeploySection {
             title: "RECENT"
-            emptyText: coolify.state === "ready" ? "No recent deployments yet." : "No history loaded."
+            emptyText: {
+              if (root.filteredSource && root.sourceWarnings(root.filteredSource).length > 0)
+                return String(root.filteredSource.message || root.filteredSource.warnings[0])
+              return coolify.state === "ready" ? "No recent deployments yet." : "No history loaded."
+            }
             rows: root.filteredRecent
             kind: "recent"
           }
@@ -784,7 +820,7 @@ Panel {
               }
               Text {
                 width: parent.width
-                text: "Keys & Tokens in Coolify. Read is enough. Stored in shell.json."
+                text: "Keys & Tokens in Coolify, with the team selected. Read is enough. Stored in shell.json."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption

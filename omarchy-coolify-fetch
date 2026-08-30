@@ -107,6 +107,10 @@ fixture_file_for() {
     printf '%s/projects.json' "$COOLIFY_FIXTURE_DIR"
     return
   fi
+  if [[ "$path" == *"/teams/current"* ]]; then
+    printf '%s/teams-current.json' "$COOLIFY_FIXTURE_DIR"
+    return
+  fi
   printf '%s/unknown.json' "$COOLIFY_FIXTURE_DIR"
 }
 
@@ -309,6 +313,22 @@ fetch_source() {
   code="$(http_get "$token" "${api}/applications" "$apps_file")"
   if [[ "$code" == "200" ]]; then
     apps_json="$(extract_list "$apps_file")"
+    local app_count
+    app_count="$(printf '%s' "$apps_json" | jq 'length')"
+    if [[ "$app_count" == "0" ]]; then
+      local team_file="${tmp}/team-current.json"
+      local team_code team_name=""
+      team_code="$(http_get "$token" "${api}/teams/current" "$team_file")"
+      if [[ "$team_code" == "200" ]]; then
+        team_name="$(jq -r '.name // empty' "$team_file" 2>/dev/null || true)"
+      fi
+      if [[ -n "$team_name" ]]; then
+        message="No apps on team \"${team_name}\". Create a read token while the team you want is selected."
+      else
+        message="This token can reach Coolify, but this team has no applications. Create it while the right team is selected."
+      fi
+      warnings="$(jq -c --arg w "$message" '. + [$w]' <<<"$warnings")"
+    fi
     local projects_file="${tmp}/projects.json"
     local projects_code
     projects_code="$(http_get "$token" "${api}/projects" "$projects_file")"
