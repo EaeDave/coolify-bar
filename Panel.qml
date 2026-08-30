@@ -28,11 +28,11 @@ Panel {
   property real wheelAccumulator: 0
   readonly property int activityPreviewCount: 8
   readonly property var refreshIntervalOptions: [
+    { value: "10", label: "Every 10 seconds" },
     { value: "15", label: "Every 15 seconds" },
     { value: "30", label: "Every 30 seconds" },
     { value: "60", label: "Every minute" },
-    { value: "120", label: "Every 2 minutes" },
-    { value: "300", label: "Every 5 minutes" }
+    { value: "180", label: "Every 3 minutes" }
   ]
   readonly property var linkBehaviorOptions: [
     { value: "Web app window", label: "Web app window" },
