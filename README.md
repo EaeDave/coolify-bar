@@ -4,7 +4,7 @@ Coolify deployments, on the Omarchy bar.
 
 The icon lights up while something is deploying (and when a recent deploy failed). Click it for a panel of running, recent, and failed deployments.
 
-v1 talks to **one Coolify instance**. The helper already returns `sources[]`, so extra instances can join the same panel later.
+One bar icon covers every Coolify you add. Name them in settings — Pessoal, Empresa, and so on — then filter the panel by that name.
 
 ## Install
 
@@ -23,8 +23,8 @@ omarchy plugin add https://github.com/EaeDave/coolify-bar.git --enable
 
 1. In Coolify: **Keys & Tokens** → create a token with **read** (not `root`, not `read:sensitive`).
 2. Click the Coolify icon on the bar (or it opens settings the first time).
-3. Paste the instance URL (`https://coolify.example.com`) and the bearer token.
-4. **Save and refresh**.
+3. Give it a **name** (Pessoal, Empresa…), the instance URL, and the bearer token.
+4. **Add instance**. Repeat for another Coolify if you have more.
 
 The token is stored on the widget entry in `~/.config/omarchy/shell.json` for v1. That file is not a secrets store. Do not commit it.
 
@@ -40,6 +40,8 @@ The token is stored on the widget entry in `~/.config/omarchy/shell.json` for v1
 | Enter / Space | Open the highlighted row |
 | `r` | Refresh |
 | Escape | Close |
+
+The bar icon shows a count while deploys are running (`1`, `2`, `9+`). With more than one instance, chips at the top of the panel filter by name.
 
 While a deploy is running, the helper polls about every 15 seconds. Otherwise it uses the interval from settings (default 30s).
 

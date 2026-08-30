@@ -3,8 +3,8 @@ import Quickshell
 import Quickshell.Io
 
 // Coolify fetch service. The helper talks to the API; this item schedules it
-// and exposes one model to the panel. V1 is a single source. The payload
-// already has `sources[]` so extra Coolify instances can land later.
+// and exposes one model to the panel. Multiple named sources go out as
+// COOLIFY_SOURCES. A lone baseUrl/token pair is treated as "Pessoal".
 Item {
   id: root
 
@@ -27,12 +27,12 @@ Item {
   readonly property int refreshIntervalSec: running.length > 0 ? Math.min(15, configuredIntervalSec) : configuredIntervalSec
   readonly property bool iconAlwaysUnlit: boolSetting("iconAlwaysUnlit", false)
   readonly property string linkBehavior: String(setting("linkBehavior", "Web app window")).toLowerCase() === "browser tab" ? "Browser tab" : "Web app window"
-  readonly property string baseUrl: String(setting("baseUrl", "")).trim()
-  readonly property string token: String(setting("token", "")).trim()
-  readonly property bool configured: baseUrl !== "" && token !== ""
+  readonly property var sourcesConfig: sourcesFromSettings(settings)
+  readonly property bool configured: hasConfiguredSource(sourcesConfig)
   readonly property int runningCount: running.length
   readonly property int failureCount: failures.length
   readonly property bool alarming: !iconAlwaysUnlit && (runningCount > 0 || failureCount > 0)
+  readonly property string runningBadge: runningCount > 9 ? "9+" : String(runningCount)
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
@@ -58,10 +58,49 @@ Item {
     return decodeURIComponent(Qt.resolvedUrl("omarchy-coolify-fetch").toString().replace(/^file:\/\//, ""))
   }
 
+  function sourcesFromSettings(value) {
+    var data = value || {}
+    var raw = data.sources
+    var list = []
+    if (raw && raw.length) {
+      for (var i = 0; i < raw.length; i++) {
+        var item = raw[i] || {}
+        list.push({
+          id: String(item.id || ("src-" + i)),
+          name: String(item.name || "Coolify").trim() || "Coolify",
+          baseUrl: String(item.baseUrl || "").trim(),
+          token: String(item.token || "").trim()
+        })
+      }
+    }
+    if (list.length === 0) {
+      var url = String(data.baseUrl || "").trim()
+      var token = String(data.token || "").trim()
+      if (url !== "" || token !== "") {
+        list.push({
+          id: "default",
+          name: String(data.sourceName || "Pessoal").trim() || "Pessoal",
+          baseUrl: url,
+          token: token
+        })
+      }
+    }
+    return list
+  }
+
+  function hasConfiguredSource(list) {
+    var rows = list || []
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].baseUrl && rows[i].token)
+        return true
+    }
+    return false
+  }
+
   function refresh() {
     if (!configured) {
       state = "unconfigured"
-      message = "Paste your Coolify URL and API token in settings."
+      message = "Add a Coolify instance in settings."
       running = []
       recent = []
       failures = []
@@ -78,8 +117,7 @@ Item {
     _stdout = ""
     _stderr = ""
     fetchProcess.environment = {
-      "COOLIFY_BASE_URL": baseUrl,
-      "COOLIFY_TOKEN": token,
+      "COOLIFY_SOURCES": JSON.stringify(sourcesConfig),
       "COOLIFY_HISTORY_TAKE": "8",
       "COOLIFY_APP_LIMIT": "40"
     }

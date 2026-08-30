@@ -23,4 +23,13 @@ test "$(jq -r '.failures | length' <<<"$payload")" -ge "1"
 test "$(jq -r '.failures[0].applicationName' <<<"$payload")" = "PR-Agent"
 test "$(jq -r '.sources | length' <<<"$payload")" = "1"
 
+multi="$(
+  COOLIFY_FIXTURE_DIR="$fixtures" \
+  COOLIFY_SOURCES='[{"id":"pessoal","name":"Pessoal","baseUrl":"https://a.example","token":"t"},{"id":"empresa","name":"Empresa","baseUrl":"https://b.example","token":"t"}]' \
+  "$helper"
+)"
+test "$(jq -r '.sources | length' <<<"$multi")" = "2"
+test "$(jq -r '.running | length' <<<"$multi")" = "2"
+test "$(jq -r '[.running[].sourceName] | unique | sort | join(",")' <<<"$multi")" = "Empresa,Pessoal"
+
 echo "helper-test: ok"

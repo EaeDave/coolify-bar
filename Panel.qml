@@ -20,8 +20,11 @@ Panel {
   property int cursorIndex: 0
   property bool settingsOpen: false
   property bool pendingSettingsOpen: false
+  property string editingId: ""
+  property string draftName: ""
   property string draftBaseUrl: ""
   property string draftToken: ""
+  property string sourceFilter: "all"
   property real wheelAccumulator: 0
   readonly property int activityPreviewCount: 8
   readonly property var refreshIntervalOptions: [
@@ -37,10 +40,105 @@ Panel {
   ]
   readonly property var cursorTargets: buildCursorTargets()
   readonly property var selectedTarget: cursorTargets.length > 0 ? cursorTargets[Math.max(0, Math.min(cursorIndex, cursorTargets.length - 1))] : null
+  readonly property var filteredRunning: filterRows(coolify.running)
+  readonly property var filteredRecent: filterRows(coolify.recent)
+  readonly property var filteredFailures: filterRows(coolify.failures)
+  readonly property bool showSourceName: coolify.sourcesConfig.length > 1 && sourceFilter === "all"
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
+  }
+
+  function copySources() {
+    var list = []
+    var rows = coolify.sourcesConfig
+    for (var i = 0; i < rows.length; i++) {
+      list.push({
+        id: rows[i].id,
+        name: rows[i].name,
+        baseUrl: rows[i].baseUrl,
+        token: rows[i].token
+      })
+    }
+    return list
+  }
+
+  function persistSources(list) {
+    var first = list.length > 0 ? list[0] : { name: "", baseUrl: "", token: "" }
+    persistSettings({
+      sources: list,
+      sourceName: first.name || "",
+      baseUrl: first.baseUrl || "",
+      token: first.token || ""
+    })
+  }
+
+  function newSourceId() {
+    return "src-" + Date.now().toString(36)
+  }
+
+  function startNewSource() {
+    editingId = ""
+    draftName = coolify.sourcesConfig.length === 0 ? "Pessoal" : ""
+    draftBaseUrl = ""
+    draftToken = ""
+  }
+
+  function startEditSource(item) {
+    editingId = String(item.id || "")
+    draftName = String(item.name || "")
+    draftBaseUrl = String(item.baseUrl || "")
+    draftToken = String(item.token || "")
+  }
+
+  function saveSource() {
+    var name = String(draftName || "").trim() || "Coolify"
+    var url = String(draftBaseUrl || "").trim()
+    var token = String(draftToken || "").trim()
+    if (url === "" || token === "")
+      return
+    var list = copySources()
+    var found = false
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === editingId && editingId !== "") {
+        list[i] = { id: list[i].id, name: name, baseUrl: url, token: token }
+        found = true
+        break
+      }
+    }
+    if (!found)
+      list.push({ id: newSourceId(), name: name, baseUrl: url, token: token })
+    persistSources(list)
+    startNewSource()
+    Qt.callLater(function() { coolify.refresh() })
+  }
+
+  function removeSource(id) {
+    var list = []
+    var rows = copySources()
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].id !== id)
+        list.push(rows[i])
+    }
+    persistSources(list)
+    if (sourceFilter === id)
+      sourceFilter = "all"
+    if (editingId === id)
+      startNewSource()
+    Qt.callLater(function() { coolify.refresh() })
+  }
+
+  function filterRows(rows) {
+    var incoming = rows || []
+    if (sourceFilter === "all")
+      return incoming
+    var out = []
+    for (var i = 0; i < incoming.length; i++) {
+      if (String(incoming[i].sourceId || "") === sourceFilter)
+        out.push(incoming[i])
+    }
+    return out
   }
 
   function persistSettings(values) {
@@ -67,19 +165,11 @@ Panel {
     refreshIntervalDropdown.close()
     linkBehaviorDropdown.close()
     if (next) {
-      draftBaseUrl = String(setting("baseUrl", ""))
-      draftToken = String(setting("token", ""))
+      if (Array.isArray(setting("sources", null)) === false && coolify.sourcesConfig.length > 0)
+        persistSources(copySources())
+      startNewSource()
     }
     pageFlip.restart()
-  }
-
-  function saveSettings() {
-    persistSettings({
-      baseUrl: String(draftBaseUrl || "").trim(),
-      token: String(draftToken || "").trim()
-    })
-    showSettings(false)
-    Qt.callLater(function() { coolify.refresh() })
   }
 
   function buildCursorTargets() {
@@ -92,9 +182,9 @@ Panel {
           row: rows[i]
         })
     }
-    add("running", coolify.running)
-    add("recent", coolify.recent)
-    add("failure", coolify.failures)
+    add("running", filteredRunning)
+    add("recent", filteredRecent)
+    add("failure", filteredFailures)
     return targets
   }
 
@@ -232,13 +322,47 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰒋"
+    text: coolify.runningCount > 0 ? "" : "󰒋"
     active: coolify.alarming
+    tooltipText: coolify.runningCount > 0
+      ? (coolify.runningCount + (coolify.runningCount === 1 ? " deploy running" : " deploys running"))
+      : "Coolify"
+    iconComponent: coolify.runningCount > 0 ? runningIcon : null
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton || buttonCode === Qt.MiddleButton)
         coolify.refresh()
       else
         root.toggle()
+    }
+  }
+
+  Component {
+    id: runningIcon
+    Item {
+      Text {
+        anchors.centerIn: parent
+        text: "󰒋"
+        color: button.active && button.useActiveColor ? button.activeColor : button.foreground
+        font.family: root.fontFamily
+        font.pixelSize: button.fontSize
+      }
+      Rectangle {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: badgeLabel.implicitWidth + Style.space(6)
+        height: badgeLabel.implicitHeight + Style.space(2)
+        radius: height / 2
+        color: button.activeColor
+        Text {
+          id: badgeLabel
+          anchors.centerIn: parent
+          text: coolify.runningBadge
+          color: Color.popups.background
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.bold: true
+        }
+      }
     }
   }
 
@@ -297,7 +421,7 @@ Panel {
         ScriptAction {
           script: Qt.callLater(function() {
             if (root.settingsOpen)
-              urlField.forceActiveFocus()
+              nameField.forceActiveFocus()
             else
               keyCatcher.forceActiveFocus()
           })
@@ -332,10 +456,19 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: coolify.source && coolify.source.name ? "Coolify · " + String(coolify.source.name) : "Coolify"
+            title: {
+              if (root.sourceFilter !== "all") {
+                for (var i = 0; i < coolify.sourcesConfig.length; i++)
+                  if (coolify.sourcesConfig[i].id === root.sourceFilter)
+                    return "Coolify · " + coolify.sourcesConfig[i].name
+              }
+              if (coolify.sourcesConfig.length === 1)
+                return "Coolify · " + coolify.sourcesConfig[0].name
+              return "Coolify"
+            }
             meta: coolify.loading ? "Refreshing deployments…" : (coolify.state === "ready"
-              ? coolify.runningCount + " running · " + coolify.recent.length + " recent"
-                + (coolify.failureCount > 0 ? " · " + coolify.failureCount + " failed" : "")
+              ? filteredRunning.length + " running · " + filteredRecent.length + " recent"
+                + (filteredFailures.length > 0 ? " · " + filteredFailures.length + " failed" : "")
               : coolify.message)
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -389,25 +522,55 @@ Panel {
             }
           }
 
+          Flow {
+            visible: coolify.sourcesConfig.length > 1
+            width: parent.width
+            spacing: Style.space(6)
+            Button {
+              text: "All"
+              selected: root.sourceFilter === "all"
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.sourceFilter = "all"
+            }
+            Repeater {
+              model: coolify.sourcesConfig
+              Button {
+                required property var modelData
+                text: modelData.name
+                selected: root.sourceFilter === modelData.id
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.sourceFilter = modelData.id
+              }
+            }
+          }
+
           DeploySection {
             title: "RUNNING"
             emptyText: coolify.state === "ready" ? "Nothing deploying right now." : "No running deployments loaded."
-            rows: coolify.running
+            rows: root.filteredRunning
             kind: "running"
           }
 
           DeploySection {
             title: "RECENT"
             emptyText: coolify.state === "ready" ? "No recent deployments yet." : "No history loaded."
-            rows: coolify.recent
+            rows: root.filteredRecent
             kind: "recent"
           }
 
           DeploySection {
-            visible: coolify.failures.length > 0
+            visible: root.filteredFailures.length > 0
             title: "FAILED"
             emptyText: ""
-            rows: coolify.failures
+            rows: root.filteredFailures
             kind: "failure"
           }
 
@@ -473,7 +636,7 @@ Panel {
                 font.bold: true
               }
               Text {
-                text: "One instance in v1. More Coolify sources can join this panel later."
+                text: "Name each Coolify so you can tell pessoal and empresa apart."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -507,11 +670,100 @@ Panel {
               width: parent.width
               spacing: Style.space(6)
               Text {
-                text: "COOLIFY URL"
+                text: "INSTANCES"
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 font.bold: true
+              }
+              Repeater {
+                model: coolify.sourcesConfig
+                Item {
+                  required property var modelData
+                  width: parent.width
+                  implicitHeight: Math.max(instanceLabels.implicitHeight, instanceEdit.implicitHeight) + Style.space(8)
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.startEditSource(modelData)
+                  }
+                  Column {
+                    id: instanceLabels
+                    anchors.left: parent.left
+                    anchors.right: instanceEdit.left
+                    anchors.rightMargin: Style.space(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(2)
+                    Text {
+                      width: parent.width
+                      text: modelData.name
+                      color: root.editingId === modelData.id ? root.foreground : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: root.editingId === modelData.id
+                      elide: Text.ElideRight
+                    }
+                    Text {
+                      width: parent.width
+                      text: modelData.baseUrl
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideMiddle
+                    }
+                  }
+                  PanelActionButton {
+                    id: instanceEdit
+                    anchors.right: instanceDelete.left
+                    anchors.rightMargin: Style.space(2)
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconText: "󰏫"
+                    tooltipText: "Edit " + modelData.name
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    onClicked: root.startEditSource(modelData)
+                  }
+                  PanelActionButton {
+                    id: instanceDelete
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconText: "󰧧"
+                    tooltipText: "Remove " + modelData.name
+                    foreground: root.urgent
+                    hoverColor: root.urgent
+                    fontFamily: root.fontFamily
+                    onClicked: root.removeSource(modelData.id)
+                  }
+                }
+              }
+              Text {
+                visible: coolify.sourcesConfig.length === 0
+                width: parent.width
+                text: "None yet. Add pessoal, empresa, or any other Coolify."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+              Text {
+                text: root.editingId === "" ? "ADD COOLIFY" : "EDIT COOLIFY"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+              TextField {
+                id: nameField
+                width: parent.width
+                foreground: root.foreground
+                placeholderText: "Name · Pessoal, Empresa…"
+                text: root.draftName
+                onTextChanged: root.draftName = text
               }
               TextField {
                 id: urlField
@@ -520,18 +772,6 @@ Panel {
                 placeholderText: "https://coolify.example.com"
                 text: root.draftBaseUrl
                 onTextChanged: root.draftBaseUrl = text
-              }
-            }
-
-            Column {
-              width: parent.width
-              spacing: Style.space(6)
-              Text {
-                text: "API TOKEN"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
               }
               TextField {
                 id: tokenField
@@ -544,11 +784,28 @@ Panel {
               }
               Text {
                 width: parent.width
-                text: "Keys & Tokens in Coolify. Read is enough. Stored in shell.json for v1."
+                text: "Keys & Tokens in Coolify. Read is enough. Stored in shell.json."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
+              }
+              Row {
+                spacing: Style.space(8)
+                Button {
+                  text: root.editingId === "" ? "Add instance" : "Save instance"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.saveSource()
+                }
+                Button {
+                  visible: root.editingId !== ""
+                  text: "Cancel"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.startNewSource()
+                }
               }
             }
 
@@ -611,13 +868,7 @@ Panel {
               onClicked: root.persistSettings({ iconAlwaysUnlit: !coolify.iconAlwaysUnlit })
             }
 
-            Button {
-              width: parent.width
-              text: "Save and refresh"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              onClicked: root.saveSettings()
-            }
+
           }
         }
       }
@@ -712,6 +963,8 @@ Panel {
         width: parent.width
         text: {
           var parts = []
+          if (root.showSourceName && row.deploy.sourceName)
+            parts.push(String(row.deploy.sourceName))
           if (row.deploy.status)
             parts.push(String(row.deploy.status).replace(/_/g, " "))
           if (row.deploy.commit)

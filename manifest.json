@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "eaedave.coolify",
   "name": "Coolify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "EaeDave",
   "license": "MIT",
   "description": "Watch Coolify deployments from the Omarchy bar: running builds, recent history, and failures.",
@@ -19,27 +19,12 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "baseUrl": "",
-      "token": "",
+      "sources": [],
       "refreshIntervalSec": 30,
       "iconAlwaysUnlit": false,
       "linkBehavior": "Web app window"
     },
     "schema": [
-      {
-        "key": "baseUrl",
-        "type": "string",
-        "label": "Coolify URL",
-        "defaultValue": "",
-        "description": "Your Coolify instance, for example https://coolify.example.com. /api/v1 is added when missing."
-      },
-      {
-        "key": "token",
-        "type": "string",
-        "label": "API token",
-        "defaultValue": "",
-        "description": "Bearer token from Coolify → Keys & Tokens. Read permission is enough. Stored in shell.json."
-      },
       {
         "key": "refreshIntervalSec",
         "type": "integer",
