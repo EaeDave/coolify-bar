@@ -6,6 +6,8 @@ The icon lights up while something is deploying (and when a recent deploy failed
 
 One bar icon covers every Coolify you add. Name them in settings — Personal, Work, and so on — then filter the panel by that name.
 
+![Omarchy Coolify panel showing running, recent, and failed deployments](preview.png)
+
 ## Install
 
 Install directly from GitHub and enable the widget:
