@@ -8,15 +8,40 @@ One bar icon covers every Coolify you add. Name them in settings — Personal, W
 
 ## Install
 
-```bash
-omarchy plugin add /home/eaedave/dev/eaedave/coolify-bar --enable
-omarchy bar move eaedave.coolify --section right
-```
-
-Or from git once this repo is public:
+Install directly from GitHub and enable the widget:
 
 ```bash
 omarchy plugin add https://github.com/EaeDave/coolify-bar.git --enable
+```
+
+The widget defaults to the right side of the bar. To choose its position:
+
+```bash
+omarchy bar move eaedave.coolify
+```
+
+Confirm the installation:
+
+```bash
+omarchy plugin list | grep eaedave.coolify
+```
+
+### Update
+
+```bash
+omarchy plugin update eaedave.coolify
+```
+
+If your Omarchy version only supports updating all third-party plugins:
+
+```bash
+omarchy plugin update
+```
+
+### Remove
+
+```bash
+omarchy plugin remove eaedave.coolify
 ```
 
 ## Setup
@@ -26,7 +51,7 @@ omarchy plugin add https://github.com/EaeDave/coolify-bar.git --enable
 3. Give it a **name** (Personal, Work…), the instance URL, and the bearer token.
 4. **Add instance**. Repeat for another Coolify if you have more.
 
-The token is stored on the widget entry in `~/.config/omarchy/shell.json` for v1. That file is not a secrets store. Do not commit it.
+The token is stored on the widget entry in `~/.config/omarchy/shell.json`. That file is not a secrets store. Do not commit it.
 
 ## Controls
 
@@ -44,6 +69,8 @@ The token is stored on the widget entry in `~/.config/omarchy/shell.json` for v1
 The bar icon shows a count while deploys are running (`1`, `2`, `9+`). With more than one instance, chips at the top of the panel filter by name.
 
 While a deploy is running, the helper polls about every 15 seconds. Otherwise it uses the interval from settings (default 30s).
+
+Rows open through `omarchy-launch-webapp` by default. Switch **Open links** to **Browser tab** if you want them in a normal browser tab.
 
 ## Requirements
 

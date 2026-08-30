@@ -43,6 +43,6 @@ empty_team="$(
 test "$(jq -r '.state' <<<"$empty_team")" = "ready"
 test "$(jq -r '.recent | length' <<<"$empty_team")" = "0"
 test "$(jq -r '.warnings | length' <<<"$empty_team")" -ge "1"
-[[ "$(jq -r '.message' <<<"$empty_team")" == *"d4vd.sv's Team"* ]]
+[[ "$(jq -r '.message' <<<"$empty_team")" == *"Personal Team"* ]]
 
 echo "helper-test: ok"
