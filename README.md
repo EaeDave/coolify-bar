@@ -72,22 +72,30 @@ The bar icon shows a count while deploys are running (`1`, `2`, `9+`). With more
 
 While a deploy is running, the helper polls about every 15 seconds. Otherwise it uses the interval from settings (default 30s).
 
+Desktop notifications are enabled by default. You get one when a deployment is detected as active (running or queued), then another when it succeeds or fails. Events are deduplicated across bar instances, so multiple monitors still produce one notification.
+
+Each deployment notification plays the bundled Coolify chime by default. Disable **Desktop notifications** to use the bar indicator only, or disable **Notification sound** to keep the toast silent.
+
 Rows open through `omarchy-launch-webapp` by default. Switch **Open links** to **Browser tab** if you want them in a normal browser tab.
 
 ## Requirements
 
 - Omarchy Quattro (Quickshell bar)
 - `curl` and `jq`
+- `omarchy-notification-send` (provided by Omarchy, for desktop notifications)
+- `pw-play` (provided by PipeWire, for the Coolify chime)
 
 ## Local development
 
 ```bash
 omarchy plugin validate .
 tests/helper-test.sh
+tests/notification-test.sh
 omarchy plugin add "$PWD" --enable
 ```
 
 The shell reloads QML when files under the installed plugin directory change.
+For a linked checkout, run `omarchy restart shell` if the running shell keeps an older QML instance.
 
 ## License
 

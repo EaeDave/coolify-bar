@@ -22,6 +22,8 @@
       "sources": [],
       "refreshIntervalSec": 30,
       "iconAlwaysUnlit": false,
+      "notificationsEnabled": true,
+      "notificationSoundEnabled": true,
       "linkBehavior": "Web app window"
     },
     "schema": [
@@ -46,6 +48,18 @@
         "type": "boolean",
         "label": "Keep the bar icon unlit",
         "defaultValue": false
+      },
+      {
+        "key": "notificationsEnabled",
+        "type": "boolean",
+        "label": "Desktop notifications",
+        "defaultValue": true
+      },
+      {
+        "key": "notificationSoundEnabled",
+        "type": "boolean",
+        "label": "Notification sound",
+        "defaultValue": true
       }
     ]
   }

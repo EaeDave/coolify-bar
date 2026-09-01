@@ -1,0 +1,67 @@
+import QtQuick
+import Quickshell
+import "file://@ROOT@" as Coolify
+
+Item {
+  id: root
+
+  Coolify.Service {
+    id: first
+    settings: ({ notificationsEnabled: true, notificationSoundEnabled: true })
+  }
+
+  Coolify.Service {
+    id: second
+    settings: ({ notificationsEnabled: true, notificationSoundEnabled: true })
+  }
+
+  Coolify.Service {
+    id: muted
+    settings: ({ notificationsEnabled: true, notificationSoundEnabled: false })
+  }
+
+  function payload(id, kind) {
+    var deploy = {
+      id: id,
+      sourceId: "default",
+      sourceName: "EaeDave",
+      applicationName: "PR-Agent",
+      status: kind,
+      statusKind: kind,
+      commit: "HEAD"
+    }
+    return JSON.stringify({
+      sources: [{
+        id: "default",
+        name: "EaeDave",
+        state: "ready",
+        running: kind === "running" ? [deploy] : [],
+        recent: [deploy]
+      }]
+    })
+  }
+
+  Timer {
+    interval: 100
+    running: true
+    repeat: false
+    onTriggered: {
+      first.apply(payload("shared-deploy", "success"))
+      second.apply(payload("shared-deploy", "success"))
+      first.apply(payload("shared-deploy", "running"))
+      second.apply(payload("shared-deploy", "running"))
+      first.apply(payload("shared-deploy", "success"))
+      second.apply(payload("shared-deploy", "success"))
+      muted.apply(payload("muted-deploy", "success"))
+      muted.apply(payload("muted-deploy", "running"))
+      finish.start()
+    }
+  }
+
+  Timer {
+    id: finish
+    interval: 1500
+    repeat: false
+    onTriggered: Qt.quit()
+  }
+}

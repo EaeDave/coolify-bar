@@ -904,6 +904,26 @@ Panel {
               fontFamily: root.fontFamily
               onClicked: root.persistSettings({ iconAlwaysUnlit: !coolify.iconAlwaysUnlit })
             }
+            Toggle {
+              width: parent.width
+              label: "Desktop notifications"
+              description: "Notify when a deploy starts, succeeds, or fails."
+              checked: coolify.notificationsEnabled
+              foreground: root.foreground
+              accent: Color.accent
+              fontFamily: root.fontFamily
+              onClicked: root.persistSettings({ notificationsEnabled: !coolify.notificationsEnabled })
+            }
+            Toggle {
+              width: parent.width
+              label: "Notification sound"
+              description: "Play the Coolify chime with each deployment notification."
+              checked: coolify.notificationSoundEnabled
+              foreground: root.foreground
+              accent: Color.accent
+              fontFamily: root.fontFamily
+              onClicked: root.persistSettings({ notificationSoundEnabled: !coolify.notificationSoundEnabled })
+            }
 
 
           }
