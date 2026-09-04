@@ -34,10 +34,12 @@ Item {
   readonly property var sourcesConfig: sourcesFromSettings(settings)
   readonly property bool notificationsEnabled: boolSetting("notificationsEnabled", true)
   readonly property bool notificationSoundEnabled: boolSetting("notificationSoundEnabled", true)
+  readonly property var seenFailures: setting("seenFailures", ({}))
+  readonly property var unseenFailures: filterUnseenFailures(failures)
   readonly property bool configured: hasConfiguredSource(sourcesConfig)
   readonly property int runningCount: running.length
-  readonly property int failureCount: failures.length
-  readonly property bool alarming: !iconAlwaysUnlit && (runningCount > 0 || failureCount > 0)
+  readonly property int unseenFailureCount: unseenFailures.length
+  readonly property bool alarming: !iconAlwaysUnlit && (runningCount > 0 || unseenFailureCount > 0)
   readonly property string runningBadge: runningCount > 9 ? "9+" : String(runningCount)
 
   function setting(name, fallback) {
@@ -58,6 +60,78 @@ Item {
       return value
     var text = String(value).toLowerCase()
     return text === "true" || text === "yes" || text === "on" || text === "1"
+  }
+
+  function failureSourceId(deploy) {
+    var value = deploy ? deploy.sourceId : ""
+    return value === undefined || value === null ? "" : String(value).trim()
+  }
+
+  function failureDeploymentId(deploy) {
+    var value = deploy ? deploy.id : ""
+    return value === undefined || value === null ? "" : String(value).trim()
+  }
+
+  function seenFailuresForSource(sourceId) {
+    var all = seenFailures
+    if (!all || typeof all !== "object")
+      return null
+    var entries = all[sourceId]
+    return entries && typeof entries === "object" ? entries : null
+  }
+
+  function isFailureSeen(deploy) {
+    var sourceId = failureSourceId(deploy)
+    var deploymentId = failureDeploymentId(deploy)
+    if (sourceId === "" || deploymentId === "")
+      return false
+    var entries = seenFailuresForSource(sourceId)
+    return entries !== null && entries[deploymentId] === true
+  }
+
+  function filterUnseenFailures(rows) {
+    var out = []
+    var items = rows || []
+    for (var i = 0; i < items.length; i++) {
+      if (!isFailureSeen(items[i]))
+        out.push(items[i])
+    }
+    return out
+  }
+
+  function copySeenFailures() {
+    var copy = {}
+    var all = seenFailures
+    if (!all || typeof all !== "object")
+      return copy
+    for (var sourceId in all) {
+      var entries = all[sourceId]
+      if (!entries || typeof entries !== "object")
+        continue
+      var sourceCopy = {}
+      var hasEntries = false
+      for (var deploymentId in entries) {
+        if (entries[deploymentId] === true) {
+          sourceCopy[deploymentId] = true
+          hasEntries = true
+        }
+      }
+      if (hasEntries)
+        copy[sourceId] = sourceCopy
+    }
+    return copy
+  }
+
+  function seenFailuresAfterAcknowledging(deploy) {
+    var sourceId = failureSourceId(deploy)
+    var deploymentId = failureDeploymentId(deploy)
+    if (sourceId === "" || deploymentId === "" || isFailureSeen(deploy))
+      return null
+    var copy = copySeenFailures()
+    var entries = copy[sourceId] || {}
+    entries[deploymentId] = true
+    copy[sourceId] = entries
+    return copy
   }
   function notificationCommand() {
     var path = String(omarchyPath || "").trim().replace(/\/+$/, "")

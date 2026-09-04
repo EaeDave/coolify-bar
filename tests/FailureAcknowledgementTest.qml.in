@@ -1,0 +1,115 @@
+import QtQuick
+import Quickshell
+import "file://@ROOT@" as Coolify
+
+Item {
+  id: root
+
+  Coolify.Service {
+    id: service
+    settings: ({ notificationsEnabled: false })
+  }
+
+  function deployment(id, sourceId, kind) {
+    return {
+      id: id,
+      sourceId: sourceId,
+      sourceName: sourceId,
+      applicationName: "PR-Agent",
+      status: kind,
+      statusKind: kind,
+      commit: "HEAD"
+    }
+  }
+
+  function payload(failureRows, runningRows) {
+    return JSON.stringify({
+      state: "ready",
+      sources: [{
+        id: "personal",
+        name: "Personal",
+        state: "ready",
+        running: runningRows,
+        recent: failureRows,
+        failures: failureRows,
+        warnings: []
+      }]
+    })
+  }
+
+  function require(condition, message) {
+    if (condition)
+      return true
+    console.error("failure-acknowledgement-test: " + message)
+    return false
+  }
+
+  Timer {
+    interval: 100
+    running: true
+    repeat: false
+    onTriggered: {
+      var failure = root.deployment("fail-1", "personal", "failed")
+      service.apply(root.payload([failure], []))
+      if (!root.require(service.unseenFailureCount === 1, "unseen failure count should start at one")) {
+        Qt.quit()
+        return
+      }
+      if (!root.require(service.alarming, "an unseen failure should alarm")) {
+        Qt.quit()
+        return
+      }
+
+      var seen = service.seenFailuresAfterAcknowledging(failure)
+      if (!root.require(seen.personal["fail-1"] === true, "acknowledgement should use the deployment id")) {
+        Qt.quit()
+        return
+      }
+      service.settings = ({ notificationsEnabled: false, seenFailures: seen })
+      if (!root.require(service.isFailureSeen(failure), "stored acknowledgement should be found")) {
+        Qt.quit()
+        return
+      }
+      if (!root.require(service.unseenFailureCount === 0, "seen failure should leave the alert set")) {
+        Qt.quit()
+        return
+      }
+      if (!root.require(!service.alarming, "seen failure without a running deploy should clear the alert")) {
+        Qt.quit()
+        return
+      }
+      if (!root.require(service.seenFailuresAfterAcknowledging(failure) === null, "acknowledgement should be idempotent")) {
+        Qt.quit()
+        return
+      }
+
+      var sameIdOtherSource = root.deployment("fail-1", "work", "failed")
+      service.apply(root.payload([sameIdOtherSource], []))
+      if (!root.require(service.unseenFailureCount === 1 && service.alarming, "source id should isolate acknowledgements")) {
+        Qt.quit()
+        return
+      }
+
+      var otherFailure = root.deployment("fail-2", "personal", "failed")
+      service.apply(root.payload([otherFailure], []))
+      if (!root.require(service.unseenFailureCount === 1 && service.alarming, "deployment id should isolate acknowledgements")) {
+        Qt.quit()
+        return
+      }
+
+      var running = root.deployment("run-1", "personal", "running")
+      service.apply(root.payload([failure], [running]))
+      if (!root.require(service.unseenFailureCount === 0, "acknowledged failure should remain filtered")) {
+        Qt.quit()
+        return
+      }
+      if (!root.require(service.runningCount === 1 && service.alarming, "running deployment should keep the alert active")) {
+        Qt.quit()
+        return
+      }
+
+      console.log("failure-acknowledgement-test: ok")
+      Qt.quit()
+    }
+  }
+}

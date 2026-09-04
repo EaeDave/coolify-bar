@@ -2,7 +2,7 @@
 
 Coolify deployments, on the Omarchy bar.
 
-The icon lights up while something is deploying (and when a recent deploy failed). Click it for a panel of running, recent, and failed deployments.
+The icon lights up while something is deploying or a failed deployment has not been marked as seen. Click it for a panel of running, recent, and failed deployments.
 
 One bar icon covers every Coolify you add. Name them in settings — Personal, Work, and so on — then filter the panel by that name.
 
@@ -62,6 +62,7 @@ The token is stored on the widget entry in `~/.config/omarchy/shell.json`. That 
 | Left click | Open or close the panel |
 | Right or middle click | Refresh |
 | Click a row | Open that deployment in Coolify |
+| Tick in `FAILED` / `m` | Mark the highlighted failed deployment as seen locally |
 | Gear | Settings |
 | `j` / `k` or arrows | Move through rows |
 | Enter / Space | Open the highlighted row |
@@ -75,6 +76,8 @@ While a deploy is running, the helper polls about every 15 seconds. Otherwise it
 Desktop notifications are enabled by default. You get one when a deployment is detected as active (running or queued), then another when it succeeds or fails. Events are deduplicated across bar instances, so multiple monitors still produce one notification.
 
 Each deployment notification plays the bundled Coolify chime by default. Disable **Desktop notifications** to use the bar indicator only, or disable **Notification sound** to keep the toast silent.
+
+A failed deployment stays red until you mark it as seen with its tick in `FAILED` (or `m` while it is highlighted). It then leaves `FAILED`, stays muted in `RECENT` when listed there, and no longer lights the bar. This acknowledgement is saved locally per Coolify source and deployment; it never changes data in Coolify.
 
 Rows open through `omarchy-launch-webapp` by default. Switch **Open links** to **Browser tab** if you want them in a normal browser tab.
 
@@ -91,6 +94,7 @@ Rows open through `omarchy-launch-webapp` by default. Switch **Open links** to *
 omarchy plugin validate .
 tests/helper-test.sh
 tests/notification-test.sh
+tests/failure-acknowledgement-test.sh
 omarchy plugin add "$PWD" --enable
 ```
 

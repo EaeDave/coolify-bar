@@ -42,7 +42,7 @@ Panel {
   readonly property var selectedTarget: cursorTargets.length > 0 ? cursorTargets[Math.max(0, Math.min(cursorIndex, cursorTargets.length - 1))] : null
   readonly property var filteredRunning: filterRows(coolify.running)
   readonly property var filteredRecent: filterRows(coolify.recent)
-  readonly property var filteredFailures: filterRows(coolify.failures)
+  readonly property var filteredFailures: filterRows(coolify.unseenFailures)
   readonly property var filteredSource: sourceFilter === "all" ? null : sourceById(sourceFilter)
   readonly property bool showSourceName: coolify.sourcesConfig.length > 1 && sourceFilter === "all"
 
@@ -173,6 +173,12 @@ Panel {
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
 
+  function acknowledgeFailure(deploy) {
+    var next = coolify.seenFailuresAfterAcknowledging(deploy)
+    if (next !== null)
+      persistSettings({ seenFailures: next })
+  }
+
   function showSettings(open) {
     var next = open === true
     if (settingsOpen === next || pageFlip.running)
@@ -264,9 +270,9 @@ Panel {
     return "󰋼"
   }
 
-  function statusColor(kind) {
+  function statusColor(kind, seen) {
     if (kind === "failed")
-      return root.urgent
+      return seen ? root.dim : root.urgent
     if (kind === "running" || kind === "queued")
       return root.foreground
     return root.dim
@@ -409,8 +415,13 @@ Panel {
       onTextKey: function(text) {
         if (root.settingsOpen)
           return
-        if (text === "r" || text === "R")
+        if ((text === "m" || text === "M")
+            && root.selectedTarget
+            && root.selectedTarget.kind === "failure") {
+          root.acknowledgeFailure(root.selectedTarget.row)
+        } else if (text === "r" || text === "R") {
           coolify.refresh()
+        }
       }
 
       transform: Rotation {
@@ -973,6 +984,8 @@ Panel {
     id: row
     property var deploy: ({})
     property string sectionKind: ""
+    readonly property bool failureSeen: row.deploy.statusKind === "failed" && coolify.isFailureSeen(row.deploy)
+    readonly property bool canAcknowledgeFailure: row.sectionKind === "failure" && !row.failureSeen
     implicitHeight: Math.max(glyph.implicitHeight, labels.implicitHeight) + Style.space(10)
     readonly property bool selected: root.cursorActive && root.selectedTarget && root.selectedTarget.key === row.sectionKind + ":" + String(row.deploy.id || "")
 
@@ -994,7 +1007,7 @@ Panel {
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
       text: root.statusGlyph(row.deploy.statusKind)
-      color: root.statusColor(row.deploy.statusKind)
+      color: root.statusColor(row.deploy.statusKind, row.failureSeen)
       font.family: root.fontFamily
       font.pixelSize: Style.font.title
       width: Style.space(22)
@@ -1005,7 +1018,8 @@ Panel {
       id: labels
       anchors.left: glyph.right
       anchors.leftMargin: Style.space(8)
-      anchors.right: parent.right
+      anchors.right: acknowledgeActionStrip.left
+      anchors.rightMargin: row.canAcknowledgeFailure ? Style.space(4) : 0
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(2)
       Text {
@@ -1035,6 +1049,35 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
+      }
+    }
+
+    Item {
+      id: acknowledgeActionStrip
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      width: row.canAcknowledgeFailure ? Style.space(32) : 0
+      visible: row.canAcknowledgeFailure
+      z: 1
+
+      Rectangle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: Style.normalBorderWidth
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
+      }
+
+      PanelActionButton {
+        anchors.fill: parent
+        iconText: "󰄬"
+        tooltipText: "Mark failure seen (M)"
+        foreground: root.foreground
+        hoverColor: Color.accent
+        fontFamily: root.fontFamily
+        bordered: false
+        onClicked: root.acknowledgeFailure(row.deploy)
       }
     }
   }
