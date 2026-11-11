@@ -191,6 +191,8 @@ normalize_items() {
         commitMessage: ((.commit_message // "") | tostring),
         createdAt: ((.created_at // "") | tostring),
         updatedAt: ((.updated_at // .created_at // "") | tostring),
+        finishedAt: ((.finished_at // "") | tostring),
+        restartOnly: (.restart_only == true),
         origin: ($apiBase | sub("/api/v1$";"")),
         url: ((.deployment_url // "") | tostring)
       }
@@ -429,6 +431,7 @@ fetch_source() {
           if $u != "" and (.seen[$u] | not) then .seen[$u] = true | .ids += [$u] else . end
         ) | .ids)[:$limit][]
     ' 2>/dev/null || true)"
+    local expect_map="{}"
     local history="[]"
     local uuid
     while IFS= read -r uuid; do
@@ -446,11 +449,33 @@ fetch_source() {
       local chunk
       chunk="$(extract_list "$hist_file" | normalize_items "$id" "$name" "$api" "$uuid")"
       history="$(jq -n -c --argjson a "$history" --argjson b "$chunk" '$a + $b')"
+      local est
+      est="$(jq -c '
+        def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+        [ sort_by(.createdAt) | reverse | .[]
+          | select(.statusKind == "success" and (.restartOnly | not))
+          | (if .finishedAt != "" then .finishedAt else .updatedAt end) as $end
+          | .createdAt as $start
+          | (try (($end | ts) - ($start | ts)) catch empty)
+          | select(. > 0)
+        ][0:5]
+        | if length < 3 then null else (sort | .[(length / 2 | floor)]) end
+      ' <<<"$chunk" 2>/dev/null || printf 'null')"
+      if [[ "$est" != "null" && -n "$est" ]]; then
+        expect_map="$(jq -c --arg u "$uuid" --arg n "$(jq -r '.[0].applicationName // ""' <<<"$chunk")" --argjson e "$est" '. + {($u): $e} + (if $n != "" then {($n): $e} else {} end)' <<<"$expect_map")"
+      fi
     done <<<"$uuids"
     recent_items="$(jq -n -c --argjson a "$running_items" --argjson b "$history" '$a + $b' | unique_by_id | sort_items)"
   else
     warnings="$(jq -c --arg w "Application list returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
     recent_items="$(printf '%s' "$running_items" | sort_items)"
+  fi
+
+  # Typical duration (median of the last 5 successful builds) for deploys of the same app.
+  if [[ -n "${expect_map:-}" && "$expect_map" != "{}" ]]; then
+    local attach='map(. + {expectedSec: (($exp[.applicationUuid] // $exp[.applicationName]) // null)})'
+    running_items="$(jq -c --argjson exp "$expect_map" "$attach" <<<"$running_items")"
+    recent_items="$(jq -c --argjson exp "$expect_map" "$attach" <<<"$recent_items")"
   fi
 
   local origin filled

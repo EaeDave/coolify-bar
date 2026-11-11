@@ -266,26 +266,68 @@ Panel {
     return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m"
   }
 
-  // Finished: updatedAt - createdAt. Running: now - createdAt. Queued/unknown: none.
-  function deployDuration(deploy) {
+  function parseMs(value) {
+    return new Date(String(value || "")).getTime()
+  }
+
+  // Seconds a deploy took (finished: finishedAt, falling back to updatedAt) or has taken
+  // so far (running), measured from createdAt. The API's deploy_started_at only marks the
+  // final rollout stage, so it is not used. Queued or unparseable: -1.
+  function deployElapsedSec(deploy) {
     var kind = String(deploy.statusKind || "")
     if (kind === "queued")
-      return ""
-    var start = new Date(String(deploy.createdAt || "")).getTime()
+      return -1
+    var start = parseMs(deploy.createdAt)
     if (!isFinite(start))
-      return ""
-    var end = kind === "running"
-      ? Math.max(root.nowMs, Date.now())
-      : new Date(String(deploy.updatedAt || "")).getTime()
+      return -1
+    var end
+    if (kind === "running") {
+      end = Math.max(root.nowMs, Date.now())
+    } else {
+      end = parseMs(deploy.finishedAt)
+      if (!isFinite(end))
+        end = parseMs(deploy.updatedAt)
+    }
     if (!isFinite(end) || end < start)
-      return ""
-    return formatDuration((end - start) / 1000)
+      return -1
+    return (end - start) / 1000
   }
+
+  function deployDuration(deploy) {
+    var seconds = deployElapsedSec(deploy)
+    return seconds < 0 ? "" : formatDuration(seconds)
+  }
+
+  // elapsed / typical duration of this app's recent successful deploys; -1 without an estimate.
+  function deployFraction(deploy) {
+    if (String(deploy.statusKind || "") !== "running")
+      return -1
+    var expected = Number(deploy.expectedSec)
+    if (!isFinite(expected) || expected <= 0)
+      return -1
+    var elapsed = deployElapsedSec(deploy)
+    return elapsed < 0 ? -1 : elapsed / expected
+  }
+
+  function percentText(fraction) {
+    return fraction < 1 ? Math.min(99, Math.floor(fraction * 100)) + "%" : "over"
+  }
+
+  function runningBadgeText() {
+    if (coolify.runningCount === 1) {
+      var fraction = deployFraction(coolify.running[0])
+      if (fraction >= 0 && fraction < 1)
+        return percentText(fraction)
+    }
+    return coolify.runningBadge
+  }
+
+  readonly property string badgeText: runningBadgeText()
 
   Timer {
     interval: 1000
     repeat: true
-    running: coolify.runningCount > 0 && root.visible
+    running: coolify.runningCount > 0
     onTriggered: root.nowMs = Date.now()
   }
 
@@ -411,7 +453,7 @@ Panel {
         Text {
           id: badgeLabel
           anchors.centerIn: parent
-          text: coolify.runningBadge
+          text: root.badgeText
           color: Color.popups.background
           font.family: root.fontFamily
           font.pixelSize: Math.max(8, Style.font.caption - 2)
@@ -1076,6 +1118,9 @@ Panel {
           var took = root.deployDuration(row.deploy)
           if (took)
             parts.push(took)
+          var fraction = root.deployFraction(row.deploy)
+          if (fraction >= 0)
+            parts.push(root.percentText(fraction))
           var when = root.relativeTime(row.deploy.updatedAt || row.deploy.createdAt)
           if (when)
             parts.push(when)
@@ -1085,6 +1130,28 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
+      }
+    }
+
+    Rectangle {
+      id: progressTrack
+      readonly property real fraction: root.deployFraction(row.deploy)
+      visible: fraction >= 0
+      anchors.left: labels.left
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(4)
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: Style.space(1)
+      height: Style.space(2)
+      radius: height / 2
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
+
+      Rectangle {
+        width: parent.width * Math.min(1, progressTrack.fraction)
+        height: parent.height
+        radius: parent.radius
+        color: progressTrack.fraction >= 1 ? root.dim : Color.accent
+        Behavior on width { NumberAnimation { duration: 900 } }
       }
     }
 

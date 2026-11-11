@@ -77,7 +77,9 @@ The token is stored on the widget entry in `~/.config/omarchy/shell.json`. That 
 
 The bar icon shows a count while deploys are running (`1`, `2`, `9+`). With more than one instance, chips at the top of the panel filter by name.
 
-Every 10 seconds the helper makes one cheap `GET /deployments` call. A change in the active deployments triggers an immediate full refresh; otherwise the full refresh runs on the interval from settings (default 30s). On HTTP 429 polling pauses for 60s and doubles on each repeat (max 10 min). Each deploy row shows its duration: `updatedAt - createdAt` when finished, a live counter while running (queued time is included if the API reports no start time).
+Every 10 seconds the helper makes one cheap `GET /deployments` call. A change in the active deployments triggers an immediate full refresh; otherwise the full refresh runs on the interval from settings (default 30s). On HTTP 429 polling pauses for 60s and doubles on each repeat (max 10 min).
+
+Each deploy row shows its duration: `finished_at - created_at` when finished, a live counter while running. A running deploy also gets a progress bar and percentage, estimated against the median duration of that app's last 5 successful builds (restart-only deploys excluded; needs at least 3). It never shows 100% before the deploy ends; past the typical duration it shows `over`. With exactly one deploy running, the bar icon shows the percentage instead of the count.
 
 Desktop notifications are enabled by default. You get one when a deployment is detected as active (running or queued), then another when it succeeds or fails. Events are deduplicated across bar instances, so multiple monitors still produce one notification.
 
