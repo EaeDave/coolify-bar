@@ -18,6 +18,7 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   property bool cursorActive: false
   property int cursorIndex: 0
+  property double nowMs: Date.now()
   property bool settingsOpen: false
   property bool pendingSettingsOpen: false
   property string editingId: ""
@@ -254,6 +255,38 @@ Panel {
     if (seconds < 86400)
       return Math.floor(seconds / 3600) + "h ago"
     return Math.floor(seconds / 86400) + "d ago"
+  }
+
+  function formatDuration(totalSeconds) {
+    var s = Math.max(0, Math.floor(totalSeconds))
+    if (s < 60)
+      return s + "s"
+    if (s < 3600)
+      return Math.floor(s / 60) + "m " + (s % 60) + "s"
+    return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m"
+  }
+
+  // Finished: updatedAt - createdAt. Running: now - createdAt. Queued/unknown: none.
+  function deployDuration(deploy) {
+    var kind = String(deploy.statusKind || "")
+    if (kind === "queued")
+      return ""
+    var start = new Date(String(deploy.createdAt || "")).getTime()
+    if (!isFinite(start))
+      return ""
+    var end = kind === "running"
+      ? Math.max(root.nowMs, Date.now())
+      : new Date(String(deploy.updatedAt || "")).getTime()
+    if (!isFinite(end) || end < start)
+      return ""
+    return formatDuration((end - start) / 1000)
+  }
+
+  Timer {
+    interval: 1000
+    repeat: true
+    running: coolify.runningCount > 0 && root.visible
+    onTriggered: root.nowMs = Date.now()
   }
 
   function statusGlyph(kind) {
@@ -1040,6 +1073,9 @@ Panel {
             parts.push(String(row.deploy.status).replace(/_/g, " "))
           if (row.deploy.commit)
             parts.push(row.deploy.commit)
+          var took = root.deployDuration(row.deploy)
+          if (took)
+            parts.push(took)
           var when = root.relativeTime(row.deploy.updatedAt || row.deploy.createdAt)
           if (when)
             parts.push(when)

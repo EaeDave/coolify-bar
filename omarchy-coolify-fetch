@@ -341,6 +341,17 @@ fetch_source() {
   running_json="$(extract_list "$running_file")"
   running_items="$(printf '%s' "$running_json" | normalize_items "$id" "$name" "$api" | unique_by_id)"
 
+  if [[ "${COOLIFY_LIGHT:-}" == "1" ]]; then
+    rm -rf "$tmp"
+    jq -n \
+      --arg id "$id" \
+      --arg name "$name" \
+      --arg baseUrl "$api" \
+      --argjson running "$running_items" \
+      '{id: $id, name: $name, baseUrl: $baseUrl, state: "ready", message: "", running: $running, recent: [], failures: [], warnings: []}'
+    return
+  fi
+
   local app_index='{"byUuid":{},"byName":{}}'
   code="$(http_get "$token" "${api}/applications" "$apps_file")"
   if [[ "$code" == "200" ]]; then

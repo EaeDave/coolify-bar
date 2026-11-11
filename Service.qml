@@ -26,9 +26,12 @@ Item {
   property string _stderr: ""
   property bool refreshQueued: false
   property var deploymentStates: ({})
+  property bool lightFetch: false
+  property double backoffUntil: 0
+  property int backoffSec: 0
 
   readonly property int configuredIntervalSec: intSetting("refreshIntervalSec", 30, 10, 600)
-  readonly property int refreshIntervalSec: running.length > 0 ? Math.min(15, configuredIntervalSec) : configuredIntervalSec
+  readonly property int lightIntervalSec: 10
   readonly property bool iconAlwaysUnlit: boolSetting("iconAlwaysUnlit", false)
   readonly property string linkBehavior: String(setting("linkBehavior", "Web app window")).toLowerCase() === "browser tab" ? "Browser tab" : "Web app window"
   readonly property var sourcesConfig: sourcesFromSettings(settings)
@@ -336,6 +339,7 @@ Item {
       return
     }
     refreshQueued = false
+    lightFetch = false
     loading = true
     _stdout = ""
     _stderr = ""
@@ -346,6 +350,83 @@ Item {
     }
     fetchProcess.command = [helperPath()]
     fetchProcess.running = true
+  }
+
+  // Cheap poll: one GET /deployments. A change in the active set triggers a full refresh.
+  function refreshLight() {
+    if (!configured || state !== "ready" || fetchProcess.running || backingOff())
+      return
+    lightFetch = true
+    _stdout = ""
+    _stderr = ""
+    fetchProcess.environment = {
+      "COOLIFY_SOURCES": JSON.stringify(sourcesConfig),
+      "COOLIFY_LIGHT": "1"
+    }
+    fetchProcess.command = [helperPath()]
+    fetchProcess.running = true
+  }
+
+  function backingOff() {
+    return Date.now() < backoffUntil
+  }
+
+  function noteRateLimited() {
+    backoffSec = backoffSec > 0 ? Math.min(600, backoffSec * 2) : 60
+    backoffUntil = Date.now() + backoffSec * 1000
+  }
+
+  function clearBackoff() {
+    backoffSec = 0
+    backoffUntil = 0
+  }
+
+  function sourceRateLimited(src) {
+    if (isRateLimited(src))
+      return true
+    var warns = (src && src.warnings) || []
+    for (var i = 0; i < warns.length; i++) {
+      if (String(warns[i]).indexOf("rate-limited") !== -1)
+        return true
+    }
+    return false
+  }
+
+  function activeSignature(rows, sourceIds) {
+    var keys = []
+    var items = rows || []
+    for (var i = 0; i < items.length; i++) {
+      var sid = String(items[i].sourceId || "")
+      if (sourceIds[sid] === true)
+        keys.push(sid + "|" + String(items[i].id || "") + "|" + String(items[i].statusKind || ""))
+    }
+    keys.sort()
+    return keys.join(",")
+  }
+
+  function applyLight(raw) {
+    var data
+    try {
+      data = JSON.parse(String(raw || ""))
+    } catch (error) {
+      return
+    }
+    var next = Array.isArray(data.sources) ? data.sources : []
+    var readyIds = {}
+    var limited = false
+    for (var i = 0; i < next.length; i++) {
+      if (isRateLimited(next[i]))
+        limited = true
+      else if (String(next[i].state || "") === "ready")
+        readyIds[String(next[i].id || "")] = true
+    }
+    if (limited) {
+      noteRateLimited()
+      return
+    }
+    clearBackoff()
+    if (activeSignature(flattenField(next, "running"), readyIds) !== activeSignature(running, readyIds))
+      refresh()
   }
 
   function isRateLimited(src) {
@@ -403,6 +484,15 @@ Item {
     try {
       var data = JSON.parse(String(raw || ""))
       var nextSources = Array.isArray(data.sources) ? data.sources : []
+      var limited = false
+      for (var n = 0; n < nextSources.length; n++) {
+        if (sourceRateLimited(nextSources[n]))
+          limited = true
+      }
+      if (limited)
+        noteRateLimited()
+      else
+        clearBackoff()
       sources = keepPreviousOnRateLimit(sources, nextSources)
       updateDeploymentNotifications(sources)
       running = flattenField(sources, "running")
@@ -438,15 +528,25 @@ Item {
 
   onConfiguredChanged: refresh()
   onConfiguredIntervalSecChanged: poll.restart()
-  onRunningCountChanged: poll.restart()
   Component.onCompleted: refresh()
 
   Timer {
     id: poll
-    interval: Math.max(1000, root.refreshIntervalSec * 1000)
+    interval: Math.max(1000, root.configuredIntervalSec * 1000)
     repeat: true
     running: root.configured
-    onTriggered: root.refresh()
+    onTriggered: {
+      if (!root.backingOff())
+        root.refresh()
+    }
+  }
+
+  Timer {
+    id: lightPoll
+    interval: root.lightIntervalSec * 1000
+    repeat: true
+    running: root.configured && root.state === "ready" && root.configuredIntervalSec > root.lightIntervalSec
+    onTriggered: root.refreshLight()
   }
 
   Process {
@@ -454,10 +554,15 @@ Item {
     running: false
     command: []
     onExited: function() {
+      var light = root.lightFetch
+      root.lightFetch = false
       root.loading = false
       var stdout = String(output.text || root._stdout || "")
       var stderr = String(errors.text || root._stderr || "").trim()
-      if (stdout.trim() !== "") {
+      if (light) {
+        if (stdout.trim() !== "")
+          root.applyLight(stdout)
+      } else if (stdout.trim() !== "") {
         root.apply(stdout)
       } else {
         root.state = "error"
