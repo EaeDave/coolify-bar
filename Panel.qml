@@ -1133,7 +1133,10 @@ Panel {
           var fraction = root.deployFraction(row.deploy)
           if (fraction >= 0)
             parts.push(root.percentText(fraction))
-          var when = root.relativeTime(row.deploy.updatedAt || row.deploy.createdAt)
+          var active = row.deploy.statusKind === "running" || row.deploy.statusKind === "queued"
+          var when = root.relativeTime(active
+            ? (row.deploy.updatedAt || row.deploy.createdAt)
+            : (row.deploy.finishedAt || row.deploy.updatedAt || row.deploy.createdAt))
           if (when)
             parts.push(when)
           return parts.join(" · ")

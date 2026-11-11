@@ -79,6 +79,8 @@ The bar icon shows a count while deploys are running (`1`, `2`, `9+`). With more
 
 Every 10 seconds the helper makes one cheap `GET /deployments` call. A change in the active deployments triggers an immediate full refresh; otherwise the full refresh runs on the interval from settings (default 30s). On HTTP 429 polling pauses for 60s and doubles on each repeat (max 10 min).
 
+Coolify has no endpoint for deploy history across all apps, and an app's `updated_at` does not track deploys. So each full refresh queries the apps with active deploys, the apps with the newest known deploys, and a rotating batch of the rest (never-seen apps first). What it learns is cached in `~/.cache/omarchy-coolify/`, so a large instance fills in over its first few refreshes. Recent deploys are ordered by creation time.
+
 Each deploy row shows its duration: `finished_at - created_at` when finished, a live counter while running. A running deploy also gets a progress bar and percentage, estimated against the median duration of that app's last 5 successful builds (restart-only deploys excluded; needs at least 3). It never shows 100% before the deploy ends; past the typical duration it shows `over`. With exactly one deploy running, the bar icon shows the percentage instead of the count.
 
 Desktop notifications are enabled by default. You get one when a deployment is detected as active (running or queued), then another when it succeeds or fails. Events are deduplicated across bar instances, so multiple monitors still produce one notification.

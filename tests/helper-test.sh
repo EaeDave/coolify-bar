@@ -60,4 +60,12 @@ rate_limited="$(
 test "$(jq -r '.state' <<<"$rate_limited")" = "rate-limited"
 [[ "$(jq -r '.message' <<<"$rate_limited")" == *"rate-limited"* ]]
 
+# The helper learns which apps deploy recently and persists it between runs.
+cache_dir="$(mktemp -d)"
+trap 'rm -rf "$cache_dir"' EXIT
+COOLIFY_FIXTURE_DIR="$fixtures" COOLIFY_CACHE_DIR="$cache_dir" \
+  COOLIFY_BASE_URL="https://coolify.example.com" COOLIFY_TOKEN="test-token" "$helper" >/dev/null
+cache_file="$(ls "$cache_dir"/*.json)"
+test "$(jq -r '."app-stub".last | length > 0' "$cache_file")" = "true"
+
 echo "helper-test: ok"

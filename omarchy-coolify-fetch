@@ -5,6 +5,7 @@ set -uo pipefail
 
 history_take="${COOLIFY_HISTORY_TAKE:-8}"
 app_limit="${COOLIFY_APP_LIMIT:-12}"
+scan_batch="${COOLIFY_SCAN_BATCH:-4}"
 curl_bin="${COOLIFY_CURL:-curl}"
 
 emit() {
@@ -230,7 +231,7 @@ fill_urls() {
 }
 
 sort_items() {
-  jq -c 'sort_by(.updatedAt) | reverse'
+  jq -c 'sort_by(.createdAt) | reverse'
 }
 
 unique_by_id() {
@@ -421,15 +422,29 @@ fetch_source() {
     else
       warnings="$(jq -c --arg w "Project list returned HTTP ${projects_code}." '. + [$w]' <<<"$warnings")"
     fi
-    local uuids
-    uuids="$(jq -n -r --argjson apps "$apps_json" --argjson running "$running_items" --argjson limit "$app_limit" '
+    local uuids cache_file="" cache="{}"
+    if [[ -n "${COOLIFY_CACHE_DIR:-}" || -z "${COOLIFY_FIXTURE_DIR:-}" ]]; then
+      cache_file="${COOLIFY_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-coolify}/$(printf '%s' "$api" | sha1sum | cut -c1-16).json"
+      if [[ -f "$cache_file" ]]; then
+        cache="$(jq -c 'if type == "object" then . else {} end' "$cache_file" 2>/dev/null || printf '{}')"
+      fi
+    fi
+    # Application updated_at says nothing about deploys (instances bulk-touch it), so
+    # pick apps from what earlier runs learned: active apps, apps with the newest known
+    # deploys, plus a rotating scan that visits never-seen apps first and then the stalest.
+    uuids="$(jq -n -r --argjson apps "$apps_json" --argjson running "$running_items" --argjson cache "$cache" --argjson limit "$app_limit" --argjson batch "$scan_batch" '
       ($running | map(.applicationUuid // empty) | map(select(. != ""))) as $fromUuid
       | ($running | map(.applicationName // empty) | map(select(. != ""))) as $names
       | ($apps | map(select(.name as $n | ($names | index($n)) != null) | (.uuid // "")) | map(select(. != ""))) as $fromName
-      | ($apps | sort_by(.updated_at // "") | reverse | map(.uuid // empty) | map(select(. != ""))) as $recent
-      | ($fromUuid + $fromName + $recent | reduce .[] as $u ({seen: {}, ids: []};
-          if $u != "" and (.seen[$u] | not) then .seen[$u] = true | .ids += [$u] else . end
-        ) | .ids)[:$limit][]
+      | ($apps | map(.uuid // empty) | map(select(. != ""))) as $all
+      | ($all | map(select($cache[.] == null))) as $fresh
+      | ($all | map(select($cache[.] != null)) | sort_by($cache[.].scanned // 0)) as $stale
+      | ($all | map(select(($cache[.].last // "") != "")) | sort_by($cache[.].last) | reverse) as $known
+      | (if ($fresh | length) > 0 then $fresh[:15] else $stale[:$batch] end) as $scan
+      | ((($fromUuid + $fromName + $known)[:$limit]) + $scan
+          | reduce .[] as $u ({seen: {}, ids: []};
+              if $u != "" and (.seen[$u] | not) then .seen[$u] = true | .ids += [$u] else . end
+            ) | .ids)[]
     ' 2>/dev/null || true)"
     local expect_map="{}"
     local history="[]"
@@ -448,6 +463,9 @@ fetch_source() {
       fi
       local chunk
       chunk="$(extract_list "$hist_file" | normalize_items "$id" "$name" "$api" "$uuid")"
+      local last
+      last="$(jq -r '[.[].createdAt] | max // ""' <<<"$chunk")"
+      cache="$(jq -c --arg u "$uuid" --arg l "$last" --argjson now "$(date +%s)" '. + {($u): {last: $l, scanned: $now}}' <<<"$cache")"
       history="$(jq -n -c --argjson a "$history" --argjson b "$chunk" '$a + $b')"
       local est
       est="$(jq -c '
@@ -465,6 +483,11 @@ fetch_source() {
         expect_map="$(jq -c --arg u "$uuid" --arg n "$(jq -r '.[0].applicationName // ""' <<<"$chunk")" --argjson e "$est" '. + {($u): $e} + (if $n != "" then {($n): $e} else {} end)' <<<"$expect_map")"
       fi
     done <<<"$uuids"
+    if [[ -n "$cache_file" ]]; then
+      mkdir -p "$(dirname "$cache_file")" 2>/dev/null \
+        && printf '%s' "$cache" >"${cache_file}.$$" 2>/dev/null \
+        && mv -f "${cache_file}.$$" "$cache_file" 2>/dev/null || true
+    fi
     recent_items="$(jq -n -c --argjson a "$running_items" --argjson b "$history" '$a + $b' | unique_by_id | sort_items)"
   else
     warnings="$(jq -c --arg w "Application list returned HTTP ${code}." '. + [$w]' <<<"$warnings")"
