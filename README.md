@@ -40,6 +40,12 @@ If your Omarchy version only supports updating all third-party plugins:
 omarchy plugin update
 ```
 
+The shell hot-reloads the plugin after an update, but it can keep the previous QML in memory. If the panel still looks outdated (for example, no deploy durations), restart the shell:
+
+```bash
+omarchy plugin update eaedave.coolify && omarchy-restart-shell
+```
+
 ### Remove
 
 ```bash
