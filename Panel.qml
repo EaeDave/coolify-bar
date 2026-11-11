@@ -313,16 +313,15 @@ Panel {
     return fraction < 1 ? Math.min(99, Math.floor(fraction * 100)) + "%" : "over"
   }
 
-  function runningBadgeText() {
-    if (coolify.runningCount === 1) {
-      var fraction = deployFraction(coolify.running[0])
-      if (fraction >= 0 && fraction < 1)
-        return percentText(fraction)
-    }
-    return coolify.runningBadge
+  // Single running deploy with an estimate still inside the typical duration: "62%". Else "".
+  function runningPercentText() {
+    if (coolify.runningCount !== 1)
+      return ""
+    var fraction = deployFraction(coolify.running[0])
+    return fraction >= 0 && fraction < 1 ? percentText(fraction) : ""
   }
 
-  readonly property string badgeText: runningBadgeText()
+  readonly property string percentLabel: runningPercentText()
 
   Timer {
     interval: 1000
@@ -419,12 +418,25 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: coolify.runningCount > 0 ? "" : "󰒋"
+    readonly property bool showPercent: root.percentLabel !== ""
+    text: coolify.runningCount > 0 && !showPercent ? "" : "󰒋"
+    labelText: root.percentLabel
+    // The icon content is scaled to the icon size, so a wide badge turns unreadable;
+    // the percentage goes beside the glyph and the slot grows to fit.
+    fixedWidth: vertical ? -1 : slotSize + (showPercent ? percentMetrics.width + Style.space(4) : 0)
     active: coolify.alarming
     tooltipText: coolify.runningCount > 0
-      ? (coolify.runningCount + (coolify.runningCount === 1 ? " deploy running" : " deploys running"))
+      ? (coolify.runningCount + (coolify.runningCount === 1 ? " deploy running" : " deploys running")
+         + (showPercent ? " · " + root.percentLabel : ""))
       : "Coolify"
-    iconComponent: coolify.runningCount > 0 ? runningIcon : null
+    iconComponent: coolify.runningCount > 0 && !showPercent ? runningIcon : null
+
+    TextMetrics {
+      id: percentMetrics
+      font.family: root.fontFamily
+      font.pixelSize: button.fontSize
+      text: "99%"
+    }
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton || buttonCode === Qt.MiddleButton)
         coolify.refresh()
@@ -453,7 +465,7 @@ Panel {
         Text {
           id: badgeLabel
           anchors.centerIn: parent
-          text: root.badgeText
+          text: coolify.runningBadge
           color: Color.popups.background
           font.family: root.fontFamily
           font.pixelSize: Math.max(8, Style.font.caption - 2)
